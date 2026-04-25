@@ -46,6 +46,8 @@ export function renderCanvas() {
       el.style.fontSize = '12px';
       el.style.color = 'var(--danger)';
       el.style.background = 'var(--surface2)';
+      el.style.width = '200px';
+      el.style.height = '200px';
       el.textContent = item.error ? '失败: ' + item.error : '生成失败';
     }
 
