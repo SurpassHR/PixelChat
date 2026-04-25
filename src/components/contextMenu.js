@@ -127,7 +127,8 @@ async function handleAction(action) {
       for (const id of itemIds) {
         const item = canvasItems.find(i => i.itemId === id);
         if (item && item.imageUrl) {
-          await addMaterial('画布图片', item.imageUrl);
+          // 从画布添加到素材库，默认归类为 'Imported'，用户可后续移动
+          await addMaterial('画布图片', item.imageUrl, 'Imported');
           addedCount++;
         }
       }
@@ -164,7 +165,6 @@ async function handleAction(action) {
           a.download = `image_${id}.png`;
           a.target = '_blank';
           a.click();
-          // 短暂延迟避免浏览器拦截批量下载
           await new Promise(r => setTimeout(r, 100));
         }
       }
@@ -186,7 +186,6 @@ async function handleAction(action) {
         showToast('请至少选择两个图像', 'error');
         break;
       }
-      // 获取右键点击时的鼠标坐标（用于定位stack）
       const { left, top } = currentData?.mousePos || { left: 200, top: 200 };
       const container = document.getElementById('canvasContainer');
       const rect = container.getBoundingClientRect();
@@ -199,19 +198,16 @@ async function handleAction(action) {
       break;
     }
     case 'removeFromStack': {
-      // 获取当前展开模式下的所有选中的临时项（如果有多个）
       const { selectedItemIds, canvasItems } = getState();
       let indicesToRemove = [];
       let stackId = currentData?.stackId || currentData?.tempStackId;
       
-      // 辅助函数：从临时项 ID 中提取索引
       const extractIndexFromTempId = (id) => {
         const match = id.match(/temp-[^-]+-(\d+)-/);
         return match ? parseInt(match[1], 10) : null;
       };
       
       if (currentData?.childIndex !== undefined && stackId) {
-        // 解析所有选中项的索引
         const extractedIndices = [];
         for (const id of selectedItemIds) {
           const idx = extractIndexFromTempId(id);
@@ -226,15 +222,11 @@ async function handleAction(action) {
         
         console.log(`[右键移出] 准备从 stack ${stackId} 移出索引:`, indicesToRemove);
         
-        // 批量移出（从大到小逐个移除，避免索引错位）
         for (const idx of indicesToRemove) {
           await removeFromStack(stackId, idx);
-          // 每次移出后需要重新获取最新的 canvasItems 或等待重建完成
-          // removeFromStack 内部已调用 rebuildCanvasFromSession 并触发监听器，无需额外等待
         }
         showToast(`已从堆叠组移出 ${indicesToRemove.length} 张图片`, 'success');
         
-        // 清除可能残留的临时展开标志
         if (window.__expandedStackId === stackId) {
           window.__expandedStackId = null;
           if (window.__expandedItems) window.__expandedItems = [];
@@ -246,7 +238,6 @@ async function handleAction(action) {
     }
     case 'addRef': {
       const { materials, selectedMaterialIds } = getState();
-      // 获取要操作的素材ID列表：优先使用选中项，否则使用当前右键项
       let targetIds = [];
       if (selectedMaterialIds.length > 0) {
         targetIds = selectedMaterialIds;
@@ -261,7 +252,6 @@ async function handleAction(action) {
         const mat = materials.find(m => m.id === id);
         if (mat) {
           let dataUrl = mat.dataUrl;
-          // Convert blob URLs to data URLs for API compatibility
           if (dataUrl && dataUrl.startsWith('blob:')) {
             try {
               const res = await fetch(dataUrl);
@@ -303,7 +293,6 @@ async function handleAction(action) {
           a.download = mat.name || 'material.png';
           a.click();
           downloadedCount++;
-          // 短暂延迟避免浏览器拦截批量下载
           await new Promise(r => setTimeout(r, 100));
         }
       }
@@ -346,7 +335,6 @@ export function initContextMenu() {
     const itemEl = e.target.closest('.canvas-item');
     if (itemEl && itemEl.dataset.itemId) {
       const data = { itemId: itemEl.dataset.itemId };
-      // 如果是展开模式下的临时项，传递额外信息
       if (itemEl.dataset.childIndex !== undefined && itemEl.dataset.tempStackId !== undefined) {
         data.childIndex = parseInt(itemEl.dataset.childIndex, 10);
         data.tempStackId = itemEl.dataset.tempStackId;
@@ -355,21 +343,19 @@ export function initContextMenu() {
       return;
     }
 
-    const matEl = e.target.closest('.material-item');
-    if (matEl && matEl.dataset.mid) {
-      // 处理素材库右键时的选中逻辑（模拟画布行为）
-      const mid = matEl.dataset.mid;
+    // 新版素材库使用 .mat-item 和 data-id
+    const matEl = e.target.closest('.mat-item');
+    if (matEl && matEl.dataset.id) {
+      const mid = matEl.dataset.id;
       const { selectedMaterialIds } = getState();
       let newSelection;
       if (e.ctrlKey || e.metaKey) {
-        // Ctrl + 右键：切换选中状态
         if (selectedMaterialIds.includes(mid)) {
           newSelection = selectedMaterialIds.filter(id => id !== mid);
         } else {
           newSelection = [...selectedMaterialIds, mid];
         }
       } else {
-        // 无修饰键：替换选中为当前项
         newSelection = [mid];
       }
       setState({ selectedMaterialIds: newSelection });

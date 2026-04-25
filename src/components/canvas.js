@@ -739,6 +739,40 @@ function setupExternalDrop() {
 // --- Init ---
 
 export function initCanvas() {
+  // 全局允许素材库拖拽
+  window.addEventListener('dragover', (e) => {
+    if (e.dataTransfer.types.includes('application/json')) {
+      e.preventDefault();
+    }
+  });
+
+  // 处理素材库拖拽到画布
+  const handleMaterialDragOver = (e) => {
+    if (e.dataTransfer.types.includes('application/json')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+  const handleMaterialDrop = async (e) => {
+    const jsonData = e.dataTransfer.getData('application/json');
+    if (jsonData) {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const { name, dataUrl } = JSON.parse(jsonData);
+        if (dataUrl) {
+          await addDroppedImage(dataUrl);
+          showToast(`素材“${name}”已添加到画布`, 'success');
+        }
+      } catch (err) {
+        console.error('处理素材拖拽失败:', err);
+      }
+    }
+  };
+  // 优先注册素材拖拽监听器（确保先于其他监听器捕获）
+  container.addEventListener('dragover', handleMaterialDragOver);
+  container.addEventListener('drop', handleMaterialDrop);
+
   container.addEventListener('mousedown', onMouseDown);
   document.addEventListener('mousemove', onMouseMove);
   document.addEventListener('mouseup', onMouseUp);

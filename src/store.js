@@ -13,7 +13,8 @@ const state = {
   selectedModelId: '',
   selectedProvider: '',
   providers: {},
-  materials: [],
+  materials: [],               // 平面素材列表，每个素材包含 id, name, dataUrl, dataHash, addedAt, category, type
+  materialStacks: [],          // 堆叠组列表，每个组包含 id, name, category, children (素材 id 数组), thumbnail
   viewport: { panX: 0, panY: 0, zoom: 1 },
   statusText: '就绪',
   generating: false,
@@ -753,23 +754,92 @@ async function computeDataUrlHash(dataUrl) {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+function migrateMaterialParentIds(materials, materialStacks) {
+  let changed = false;
+  // 1. 为每个堆叠组中的子素材设置 parentStackId
+  for (const stack of materialStacks) {
+    if (stack.children && stack.children.length) {
+      for (const childId of stack.children) {
+        const child = materials.find(m => m.id === childId);
+        if (child && child.parentStackId !== stack.id) {
+          child.parentStackId = stack.id;
+          changed = true;
+        }
+      }
+    }
+  }
+  // 2. 清理孤儿 parentStackId（指向不存在的堆叠组）
+  for (const material of materials) {
+    if (material.parentStackId) {
+      const stackExists = materialStacks.some(s => s.id === material.parentStackId);
+      if (!stackExists) {
+        delete material.parentStackId;
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
 async function loadMaterials() {
+  // 优先从本地 localStorage 加载分组结构和素材
+  const localData = localStorage.getItem('image-gen-materials-v2');
+  if (localData) {
+    try {
+      const parsed = JSON.parse(localData);
+      if (parsed.materials && Array.isArray(parsed.materials)) {
+        console.log('[加载] 从 localStorage 加载素材库 v2:', parsed.materials.length, '个素材,', parsed.materialStacks?.length || 0, '个堆叠组');
+        // 确保每个素材有必要的字段
+        parsed.materials.forEach(m => {
+          if (!m.category) m.category = 'Imported';
+          if (!m.type) m.type = 'image';
+        });
+        // 修复 parentStackId 映射
+        const migrated = migrateMaterialParentIds(parsed.materials, parsed.materialStacks || []);
+        if (migrated) {
+          console.log('[修复] 已更新 parentStackId 映射');
+          // 保存修复后的数据
+          localStorage.setItem('image-gen-materials-v2', JSON.stringify({
+            materials: parsed.materials,
+            materialStacks: parsed.materialStacks || []
+          }));
+        }
+        return { materials: parsed.materials, materialStacks: parsed.materialStacks || [] };
+      }
+    } catch (e) { console.log('[加载] localStorage 解析失败:', e); }
+  }
+
+  // 回退：从后端加载（旧格式）
+  let remote = [];
   try {
-    const remote = await apiGet('/api/materials');
+    remote = await apiGet('/api/materials');
     if (remote && remote.length > 0) {
       remote.forEach(m => { if (m.dataUrl) m.dataUrl = resolveBackendUrl(m.dataUrl); });
       console.log('[加载] materials 从后端加载:', remote.length, '个');
-      return remote;
     }
   } catch (e) { console.log('[加载] 后端 materials 不可用:', e.message); }
-  return [];
+
+  // 转换为新格式，默认 category = 'Imported'
+  const materials = remote.map(m => ({
+    ...m,
+    category: 'Imported',
+    type: 'image'
+  }));
+  return { materials, materialStacks: [] };
 }
 
 function saveMaterials() {
+  // 保存到 localStorage
+  const toSave = {
+    materials: state.materials,
+    materialStacks: state.materialStacks
+  };
+  localStorage.setItem('image-gen-materials-v2', JSON.stringify(toSave));
+  // 仍然尝试同步到后端（但后端可能不支持新结构，忽略错误）
   debouncedBackendSync();
 }
 
-export async function addMaterial(name, dataUrl) {
+export async function addMaterial(name, dataUrl, category = 'Imported') {
   const hash = await computeDataUrlHash(dataUrl);
   const existing = state.materials.find(m => m.dataHash === hash);
   if (existing) {
@@ -778,20 +848,192 @@ export async function addMaterial(name, dataUrl) {
   }
 
   const savedUrl = await ensureImageUrl(dataUrl);
-  const mat = { id: generateId(), name, dataUrl: resolveBackendUrl(savedUrl), dataHash: hash, addedAt: Date.now() };
+  const mat = {
+    id: generateId(),
+    name,
+    dataUrl: resolveBackendUrl(savedUrl),
+    dataHash: hash,
+    addedAt: Date.now(),
+    category,          // 'Generated' 或 'Imported'
+    type: 'image',
+    parentStackId: null   // 所属堆叠组 ID，若为 null 表示独立素材
+  };
   state.materials.push(mat);
   saveMaterials();
   if (listeners['materials']) listeners['materials'].forEach(fn => fn());
   return mat;
 }
 
+// 辅助函数：清理所有只有一个子素材的堆叠组（自动解散）
+function cleanupSingleItemStacks() {
+  for (let i = 0; i < state.materialStacks.length; i++) {
+    const stack = state.materialStacks[i];
+    if (stack.children.length === 1) {
+      const orphanId = stack.children[0];
+      const orphanMat = state.materials.find(m => m.id === orphanId);
+      if (orphanMat) {
+        orphanMat.parentStackId = null;
+      }
+      state.materialStacks.splice(i, 1);
+      i--; // 调整索引
+    }
+  }
+}
+
 export function removeMaterial(id) {
+  const mat = state.materials.find(m => m.id === id);
+  if (!mat) return;
+  
+  // 如果素材属于某个堆叠组，从该组中移除
+  if (mat.parentStackId) {
+    const stack = state.materialStacks.find(s => s.id === mat.parentStackId);
+    if (stack) {
+      stack.children = stack.children.filter(cid => cid !== id);
+      // 如果堆叠组变空，删除堆叠组
+      if (stack.children.length === 0) {
+        state.materialStacks = state.materialStacks.filter(s => s.id !== stack.id);
+      } else {
+        // 更新缩略图
+        const firstChild = state.materials.find(m => m.id === stack.children[0]);
+        if (firstChild) stack.thumbnail = firstChild.dataUrl;
+      }
+    }
+  }
+  
+  // 删除素材本身
   state.materials = state.materials.filter(m => m.id !== id);
-  // Remove from selectedMaterialIds as well
   state.selectedMaterialIds = state.selectedMaterialIds.filter(selectedId => selectedId !== id);
+  
+  // 清理所有只剩一个子素材的堆叠组（自动解散）
+  cleanupSingleItemStacks();
+  
   saveMaterials();
   if (listeners['materials']) listeners['materials'].forEach(fn => fn());
   if (listeners['selectedMaterialIds']) listeners['selectedMaterialIds'].forEach(fn => fn());
+  if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
+}
+
+// 创建堆叠组
+export function createMaterialStack(itemIds, category, name = 'Group') {
+  if (!itemIds.length) return null;
+  const stackId = `stack-${Date.now()}-${Math.random().toString(36).substr(2, 8)}`;
+  const children = [...itemIds];
+  const firstMat = state.materials.find(m => m.id === children[0]);
+  if (!firstMat) return null;
+  const stack = {
+    id: stackId,
+    name,
+    category,
+    children,
+    thumbnail: firstMat.dataUrl,
+    type: 'stack',
+    isStack: true
+  };
+  state.materialStacks.push(stack);
+  // 为每个子素材设置 parentStackId
+  for (const id of children) {
+    const mat = state.materials.find(m => m.id === id);
+    if (mat) {
+      mat.parentStackId = stackId;
+    }
+  }
+  saveMaterials();
+  if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
+  if (listeners['materials']) listeners['materials'].forEach(fn => fn());
+  return stack;
+}
+
+// 解散堆叠组
+export function ungroupMaterialStack(stackId) {
+  const stackIndex = state.materialStacks.findIndex(s => s.id === stackId);
+  if (stackIndex === -1) return;
+  const stack = state.materialStacks[stackIndex];
+  // 清除子素材的 parentStackId
+  for (const id of stack.children) {
+    const mat = state.materials.find(m => m.id === id);
+    if (mat) {
+      mat.parentStackId = null;
+    }
+  }
+  state.materialStacks.splice(stackIndex, 1);
+  saveMaterials();
+  if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
+  if (listeners['materials']) listeners['materials'].forEach(fn => fn());
+}
+
+// 移动素材到指定堆叠组（或移出到根）
+export function moveMaterialToStack(materialIds, targetStackId = null) {
+  if (!materialIds.length) return;
+  
+  // 先清除这些素材原有的 parentStackId（从原组中移除）
+  for (const id of materialIds) {
+    const mat = state.materials.find(m => m.id === id);
+    if (mat) {
+      const oldStackId = mat.parentStackId;
+      if (oldStackId) {
+        const oldStack = state.materialStacks.find(s => s.id === oldStackId);
+        if (oldStack) {
+          oldStack.children = oldStack.children.filter(cid => cid !== id);
+        }
+      }
+      mat.parentStackId = null;
+    }
+  }
+
+  if (targetStackId === null) {
+    // 移出到根：保持 parentStackId = null，无需额外操作
+    // （上面已经清除）
+  } else {
+    // 加入目标堆叠组
+    const targetStack = state.materialStacks.find(s => s.id === targetStackId);
+    if (targetStack) {
+      for (const id of materialIds) {
+        const mat = state.materials.find(m => m.id === id);
+        if (mat) {
+          mat.parentStackId = targetStackId;
+          if (!targetStack.children.includes(id)) {
+            targetStack.children.push(id);
+          }
+        }
+      }
+      // 更新缩略图
+      const firstChild = targetStack.children.length ? state.materials.find(m => m.id === targetStack.children[0]) : null;
+      if (firstChild) targetStack.thumbnail = firstChild.dataUrl;
+    } else {
+      // 目标堆叠组不存在（异常情况），创建新组
+      const category = materialIds.length ? (state.materials.find(m => m.id === materialIds[0])?.category || 'Imported') : 'Imported';
+      createMaterialStack(materialIds, category);
+    }
+  }
+
+  // 清理空堆叠组（没有子素材的组）
+  for (let i = 0; i < state.materialStacks.length; i++) {
+    const s = state.materialStacks[i];
+    if (s.children.length === 0) {
+      state.materialStacks.splice(i, 1);
+      i--;
+    }
+  }
+
+  // 清理所有只有一个子素材的堆叠组（自动解散）
+  cleanupSingleItemStacks();
+
+  saveMaterials();
+  if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
+  if (listeners['materials']) listeners['materials'].forEach(fn => fn());
+}
+
+// 获取合并后的视图数据（独立素材 + 堆叠组）
+// 注意：独立素材是指 parentStackId === null 的素材，不包括已分组的子素材
+export function getFlattenedMaterialItems(category = null) {
+  const items = [];
+  // 添加独立素材（parentStackId 为 null）
+  const filteredMats = state.materials.filter(m => m.parentStackId === null && (category ? m.category === category : true));
+  items.push(...filteredMats);
+  // 添加堆叠组
+  const filteredStacks = category ? state.materialStacks.filter(s => s.category === category) : [...state.materialStacks];
+  items.push(...filteredStacks);
+  return items;
 }
 
 // --------------------------------------------------------------
@@ -846,7 +1088,7 @@ export async function cancelBackendTask(taskId) {
 // 初始化存储（从后端加载数据）
 // --------------------------------------------------------------
 export async function initStore() {
-  const [sessions, materials, settings, activeId] = await Promise.all([
+  const [sessions, materialsData, settings, activeId] = await Promise.all([
     loadSessions(),
     loadMaterials(),
     loadSettings(),
@@ -856,8 +1098,9 @@ export async function initStore() {
   if (sessions && Object.keys(sessions).length > 0) {
     state.sessions = sessions;
   }
-  if (materials && materials.length > 0) {
-    state.materials = materials;
+  if (materialsData) {
+    state.materials = materialsData.materials || [];
+    state.materialStacks = materialsData.materialStacks || [];
   }
   if (settings) {
     if (settings.selectedModelId !== undefined) state.selectedModelId = settings.selectedModelId;
@@ -891,6 +1134,7 @@ export async function initStore() {
   if (listeners['currentSessionId']) listeners['currentSessionId'].forEach(fn => fn());
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
   if (listeners['materials']) listeners['materials'].forEach(fn => fn());
+  if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
   if (listeners['models']) listeners['models'].forEach(fn => fn());
   if (listeners['selectedModelId']) listeners['selectedModelId'].forEach(fn => fn());
   if (listeners['selectedProvider']) listeners['selectedProvider'].forEach(fn => fn());

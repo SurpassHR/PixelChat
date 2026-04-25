@@ -29,15 +29,38 @@ body {
   user-select: none;
 }
 
+/* Resize handles */
+.resize-handle {
+  flex-shrink: 0;
+  width: 4px;
+  background: transparent;
+  cursor: col-resize;
+  transition: background 0.2s;
+  z-index: 10;
+}
+
+.resize-handle:hover {
+  background: rgba(138, 180, 248, 0.4);
+}
+
+.resize-handle-left {
+  /* 左侧手柄紧贴左侧栏右侧 */
+}
+
+.resize-handle-right {
+  /* 右侧手柄紧贴右侧栏左侧 */
+}
+
 /* Sidebar */
 .sidebar {
   width: 320px;
-  min-width: 320px;
+  min-width: 200px;
   background: var(--surface);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .history-section {
@@ -304,12 +327,13 @@ body {
 /* Right Sidebar */
 .sidebar-right {
   width: 320px;
-  min-width: 320px;
+  min-width: 200px;
   background: var(--surface);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 /* Material Library */
@@ -337,65 +361,272 @@ body {
 .material-list {
   flex: 1;
   overflow-y: auto;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin: 0 -20px;
-  padding: 0 20px;
-  align-content: start;
+  margin: 0;
+  padding: 8px 0;
+  background: var(--surface);
 }
 
-.material-item {
-  position: relative;
-  border-radius: var(--radius);
-  overflow: hidden;
+/* 文件列表样式 */
+.mat-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin: 0;
+  border-bottom: 1px solid var(--border);
   cursor: grab;
-  aspect-ratio: 1;
+  transition: background 0.15s;
+  user-select: none;
+  position: relative;
+}
+
+.mat-item.mat-selected {
+  background: rgba(74, 111, 165, 0.2);
+  border-left: 2px solid var(--accent);
+}
+
+.mat-item.mat-dragover {
+  background: rgba(74, 111, 165, 0.4);
+  outline: 1px solid var(--accent);
+}
+
+.mat-item.mat-child-item {
+  padding-left: 36px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.mat-item-thumb {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface2);
   border: 1px solid var(--border);
-  transition: border-color 0.15s;
 }
 
-.material-item:hover {
-  border-color: var(--accent-dim);
-}
-
-.material-item.selected {
-  border-color: var(--accent);
-  background: rgba(74, 111, 165, 0.1);
-}
-
-.material-item img {
+.mat-item-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+.mat-stack-indicator {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  display: flex;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 10px;
+  color: white;
+}
+
+.mat-stack-count {
+  font-weight: bold;
+}
+
+.mat-stack-expand {
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0 2px;
+}
+
+.mat-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mat-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.mat-item-type {
+  font-size: 10px;
+  color: var(--text2);
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+.mat-item-actions {
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.mat-item:hover .mat-item-actions {
+  opacity: 1;
+}
+
+.mat-remove-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--text2);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mat-remove-btn:hover {
+  background: rgba(242, 139, 130, 0.2);
+  color: var(--danger);
+}
+
+/* 素材库工具栏 */
+.mat-toolbar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.mat-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--surface2);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.mat-tab {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  color: var(--text2);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mat-tab.active {
+  background: var(--accent-dim);
+  color: white;
+}
+
+.mat-search {
+  flex: 1;
+  max-width: 200px;
+}
+
+.mat-search input {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+}
+
+.mat-search input:focus {
+  border-color: var(--accent-dim);
+}
+
+.mat-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text2);
+  font-size: 13px;
+}
+
+/* 新增素材库 UI 样式 */
+.mat-stack-overlay {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 12px;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: white;
+  backdrop-filter: blur(4px);
   pointer-events: none;
 }
 
-.material-item .mat-remove {
-  position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.6);
-  border: none;
-  color: #fff;
-  font-size: 12px;
-  cursor: pointer;
-  display: none;
+.mat-stack-count {
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+.mat-drag-source {
+  opacity: 0.5;
+  filter: grayscale(0.3);
+  transition: opacity 0.15s;
+}
+
+.mat-root-dragover {
+  background: rgba(74, 111, 165, 0.08);
+  outline: 2px dashed var(--accent-dim);
+  outline-offset: -2px;
+}
+
+.mat-empty-state {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  line-height: 1;
+  padding: 60px 20px;
+  color: var(--text2);
+  text-align: center;
+  gap: 12px;
 }
 
-.material-item:hover .mat-remove {
-  display: flex;
+.mat-empty-state svg {
+  opacity: 0.4;
 }
 
-.material-item .mat-remove:hover {
-  background: var(--danger);
+.mat-empty-state p {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+}
+
+.mat-empty-hint {
+  font-size: 11px;
+  color: var(--text2);
+  opacity: 0.7;
+}
+
+.mat-stack-expand-btn {
+  background: transparent;
+  border: none;
+  color: var(--text2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mat-stack-expand-btn:hover {
+  background: rgba(138, 180, 248, 0.15);
+  color: var(--accent);
 }
 
 
@@ -425,7 +656,7 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  min-width: 300px;
 }
 
 .header {
