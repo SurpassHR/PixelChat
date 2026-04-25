@@ -287,26 +287,25 @@ function saveActiveIdToLocalStorage(id) {
 }
 
 async function loadActiveId() {
-  // Try backend first
-  let backendId = '';
-  try {
-    const val = await apiGet('/api/active');
-    if (val) backendId = val;
-  } catch (e) { console.log('[加载] 后端 active 不可用:', e.message); }
-
-  // If backend returned a valid ID, use it and sync to localStorage
-  if (backendId) {
-    saveActiveIdToLocalStorage(backendId);
-    return backendId;
-  }
-
-  // Fallback to localStorage
+  // Try localStorage first (most recent user action, more reliable for single-user)
   const localId = loadActiveIdFromLocalStorage();
   if (localId) {
     console.log('[加载] 使用 localStorage 中的会话 ID:', localId);
     // Optionally sync back to backend when it becomes available
     beaconPost('/api/active', { id: localId });
     return localId;
+  }
+
+  // Fallback to backend
+  let backendId = '';
+  try {
+    const val = await apiGet('/api/active');
+    if (val) backendId = val;
+  } catch (e) { console.log('[加载] 后端 active 不可用:', e.message); }
+
+  if (backendId) {
+    saveActiveIdToLocalStorage(backendId);
+    return backendId;
   }
 
   return '';
@@ -736,6 +735,18 @@ export async function initStore() {
   state.batchSize = settings.batchSize || 1;
   const savedId = await loadActiveId();
   console.log('[初始化] sessions:', Object.keys(state.sessions).length, '个, materials:', state.materials.length, '个, 当前会话ID:', savedId);
+
+  // If savedId exists but not in loaded sessions (e.g., newly created session not yet synced to backend), create it
+  if (savedId && !state.sessions[savedId]) {
+    state.sessions[savedId] = {
+      id: savedId,
+      title: '新会话',
+      createdAt: Date.now(),
+      _canvasSeq: 0
+    };
+    saveSessions(); // attempt to persist
+    console.log('[初始化] 恢复缺失的会话:', savedId);
+  }
 
   if (savedId && state.sessions[savedId]) {
     state.currentSessionId = savedId;
