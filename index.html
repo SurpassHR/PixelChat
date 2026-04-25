@@ -108,21 +108,41 @@
         <button class="modal-close" id="modalCloseBtn">×</button>
       </div>
       <div class="modal-body" id="modalBody">
-        <div class="detail-image-container">
-          <img id="detailImage" src="" alt="生成图片">
-        </div>
-        <div class="detail-info" id="detailInfo">
-          <div class="detail-section" id="detailPromptSection">
-            <div class="detail-label">提示词</div>
-            <div class="detail-text" id="detailPrompt"></div>
+        <div class="detail-layout">
+          <div class="detail-image-col">
+            <div class="detail-image-container" id="detailImageContainer">
+              <img id="detailImage" src="" alt="生成图片">
+            </div>
+            <div class="detail-image-toolbar">
+              <button class="detail-btn toolbar-btn" id="detailZoomOutBtn" title="缩小">−</button>
+              <span class="detail-zoom-level" id="detailZoomLevel">100%</span>
+              <button class="detail-btn toolbar-btn" id="detailZoomInBtn" title="放大">+</button>
+              <span class="toolbar-sep"></span>
+              <button class="detail-btn toolbar-btn" id="detailRotateLeftBtn" title="左旋转 90°">↺</button>
+              <button class="detail-btn toolbar-btn" id="detailRotateRightBtn" title="右旋转 90°">↻</button>
+              <span class="toolbar-sep"></span>
+              <button class="detail-btn toolbar-btn" id="detailFlipHBtn" title="水平镜像">↔</button>
+              <button class="detail-btn toolbar-btn" id="detailFlipVBtn" title="垂直镜像">↕</button>
+              <span class="toolbar-sep"></span>
+              <button class="detail-btn toolbar-btn" id="detailResetBtn" title="重置">⟲</button>
+            </div>
           </div>
-          <div class="detail-section" id="detailRefsSection" style="display:none">
-            <div class="detail-label">参考图</div>
-            <div class="detail-refs" id="detailRefs"></div>
+          <div class="detail-info-col">
+            <div class="detail-section" id="detailPromptSection">
+              <div class="detail-prompt-header">
+                <span class="detail-label">提示词</span>
+                <button class="detail-btn detail-copy-btn" id="detailCopyBtn" title="复制提示词">📋 复制</button>
+              </div>
+              <div class="detail-text" id="detailPrompt"></div>
+            </div>
+            <div class="detail-section" id="detailRefsSection" style="display:none">
+              <div class="detail-label">参考图</div>
+              <div class="detail-refs" id="detailRefs"></div>
+            </div>
+            <div class="detail-actions">
+              <button class="detail-btn" id="detailDownloadBtn">⬇ 下载图片</button>
+            </div>
           </div>
-        </div>
-        <div class="detail-actions">
-          <button class="detail-btn" id="detailDownloadBtn">⬇ 下载图片</button>
         </div>
       </div>
     </div>
