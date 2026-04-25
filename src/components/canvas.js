@@ -1,4 +1,4 @@
-import { getState, setState, subscribe, addDroppedImage, cancelGeneration, createStackFromItems, addToStack, removeFromStack } from '../store.js';
+import { getState, setState, subscribe, addDroppedImage, cancelGeneration, createStackFromItems, addToStack, removeFromStack, removeCanvasItemById } from '../store.js';
 import { $$ } from '../domHelpers.js';
 import { openImageDetail } from './modal.js';
 import { showToast } from '../toast.js';
@@ -326,6 +326,54 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && _expandedStackId) {
     collapseExpanded();
   }
+});
+
+// Delete 键删除选中图像
+document.addEventListener('keydown', async e => {
+  // Only handle Delete key (not in input/textarea/select)
+  if (e.key !== 'Delete' && e.key !== 'Del') return;
+  const activeTag = document.activeElement?.tagName;
+  if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+
+  const { selectedItemIds } = getState();
+  if (!selectedItemIds.length) return;
+
+  e.preventDefault(); // Prevent any default browser delete behavior
+
+  // Separate items into temporary expanded items and regular canvas items
+  const tempIds = [];
+  const regularIds = [];
+  const indicesToRemove = [];
+
+  if (_expandedStackId && _expandedItems.length) {
+    for (const id of selectedItemIds) {
+      const tempItem = _expandedItems.find(item => item.itemId === id);
+      if (tempItem && tempItem._tempParentStackId === _expandedStackId && tempItem._childIndex !== undefined) {
+        tempIds.push(id);
+        indicesToRemove.push(tempItem._childIndex);
+      } else {
+        // Not a temp expanded item (could be regular canvas item when expanded mode is active)
+        regularIds.push(id);
+      }
+    }
+  } else {
+    regularIds.push(...selectedItemIds);
+  }
+
+  // Remove temporary expanded items (from stack) first
+  if (indicesToRemove.length) {
+    // Sort descending for safe removal
+    indicesToRemove.sort((a, b) => b - a);
+    await window.batchRemoveFromExpandedStack(_expandedStackId, indicesToRemove);
+  }
+
+  // Remove regular canvas items
+  for (const id of regularIds) {
+    removeCanvasItemById(id);
+  }
+
+  // Clear selection after deletion
+  setState({ selectedItemIds: [] });
 });
 
 function onMouseDown(e) {
