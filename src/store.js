@@ -5,6 +5,7 @@ const state = {
   currentSessionId: '',
   canvasItems: [],
   selectedItemIds: [],
+  selectedMaterialIds: [],
   refImages: [],
   reusePrompt: false,
   reuseRef: false,
@@ -357,11 +358,13 @@ export async function switchSession(id) {
   saveActiveId(id);
   await rebuildCanvasFromSession();
   state.selectedItemIds = [];
+  state.selectedMaterialIds = [];
   state.viewport = { panX: 0, panY: 0, zoom: 1 };
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
   if (listeners['currentSessionId']) listeners['currentSessionId'].forEach(fn => fn());
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
   if (listeners['selectedItemIds']) listeners['selectedItemIds'].forEach(fn => fn());
+  if (listeners['selectedMaterialIds']) listeners['selectedMaterialIds'].forEach(fn => fn());
   if (listeners['viewport']) listeners['viewport'].forEach(fn => fn());
 }
 
@@ -568,7 +571,7 @@ export function updateCanvasItemPosition(itemId, x, y) {
   }
 }
 
-export function removeCanvasItemById(itemId) {
+export async function removeCanvasItemById(itemId) {
   const idx = state.canvasItems.findIndex(i => i.itemId === itemId);
   if (idx === -1) return;
   const item = state.canvasItems[idx];
@@ -589,9 +592,32 @@ export function removeCanvasItemById(itemId) {
     }
     saveSessions();
   } else if (item.type === 'stack' && session.stacks) {
-    const stackId = item.itemId.substring(5);
-    session.stacks = session.stacks.filter(s => s.id !== stackId);
-    saveSessions();
+    const rawStackId = item.itemId.substring(5);
+    // 尝试规范化 ID：去掉可能的前导连字符
+    const normalizedId = rawStackId.replace(/^-+/, '');
+    console.log('[删除Stack] 原始 stackId:', rawStackId, '规范化后:', normalizedId);
+    console.log('[删除Stack] 当前 stacks 列表:', session.stacks.map(s => ({ id: s.id, type: typeof s.id })));
+    console.log('[删除Stack] 当前 stacks 数量:', session.stacks.length);
+    const beforeCount = session.stacks.length;
+    // 同时匹配原始ID和规范化后的ID（处理可能的前导连字符不一致）
+    session.stacks = session.stacks.filter(s => s.id !== rawStackId && s.id !== normalizedId);
+    console.log('[删除Stack] 过滤后剩余数量:', session.stacks.length, '删除了', beforeCount - session.stacks.length, '个');
+    if (session.stacks.length === beforeCount) {
+      console.error('[删除Stack] 未找到匹配的 stack! 原始ID=', rawStackId, '规范化ID=', normalizedId, '可用 IDs:', session.stacks.map(s => s.id));
+      // 尝试更宽松的匹配：输出每个 stack.id 的字符表示
+      session.stacks.forEach(s => {
+        console.log(`  可用stack id: "${s.id}", 是否等于 raw? ${s.id === rawStackId}, 是否等于 normalized? ${s.id === normalizedId}`);
+      });
+    } else {
+      console.log('[删除Stack] 成功删除 stack');
+    }
+    // 立即保存到后端，避免刷新后重新出现
+    try {
+      await apiPost('/api/sessions', sanitizeForSave(state.sessions));
+      console.log('[删除Stack] 立即保存 sessions 成功');
+    } catch (err) {
+      console.error('[删除Stack] 保存 sessions 失败:', err);
+    }
   }
 
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
@@ -761,8 +787,114 @@ export async function addMaterial(name, dataUrl) {
 
 export function removeMaterial(id) {
   state.materials = state.materials.filter(m => m.id !== id);
+  // Remove from selectedMaterialIds as well
+  state.selectedMaterialIds = state.selectedMaterialIds.filter(selectedId => selectedId !== id);
   saveMaterials();
   if (listeners['materials']) listeners['materials'].forEach(fn => fn());
+  if (listeners['selectedMaterialIds']) listeners['selectedMaterialIds'].forEach(fn => fn());
+}
+
+// --------------------------------------------------------------
+// 任务队列 API 辅助函数
+// --------------------------------------------------------------
+async function apiGetTasks() {
+  const base = getStorageBase();
+  if (!base) throw new Error('no backend');
+  const res = await fetch(base + '/api/tasks');
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+async function apiPostTask(data) {
+  const base = getStorageBase();
+  if (!base) throw new Error('no backend');
+  const res = await fetch(base + '/api/tasks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+async function apiCancelTask(taskId) {
+  const base = getStorageBase();
+  if (!base) throw new Error('no backend');
+  const res = await fetch(base + `/api/tasks/${taskId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return res.json();
+}
+
+export async function submitTask({ prompt, model, provider, refs }) {
+  const task = await apiPostTask({ prompt, model, provider, refs });
+  return { id: task.id };
+}
+
+export async function fetchTasks() {
+  const tasks = await apiGetTasks();
+  return tasks;
+}
+
+export async function cancelBackendTask(taskId) {
+  await apiCancelTask(taskId);
+}
+
+// --------------------------------------------------------------
+// 初始化存储（从后端加载数据）
+// --------------------------------------------------------------
+export async function initStore() {
+  const [sessions, materials, settings, activeId] = await Promise.all([
+    loadSessions(),
+    loadMaterials(),
+    loadSettings(),
+    loadActiveId()
+  ]);
+  
+  if (sessions && Object.keys(sessions).length > 0) {
+    state.sessions = sessions;
+  }
+  if (materials && materials.length > 0) {
+    state.materials = materials;
+  }
+  if (settings) {
+    if (settings.selectedModelId !== undefined) state.selectedModelId = settings.selectedModelId;
+    if (settings.selectedProvider !== undefined) state.selectedProvider = settings.selectedProvider;
+    if (settings.providers !== undefined) state.providers = settings.providers;
+    if (settings.reusePrompt !== undefined) state.reusePrompt = settings.reusePrompt;
+    if (settings.reuseRef !== undefined) state.reuseRef = settings.reuseRef;
+    if (settings.batchSize !== undefined) state.batchSize = settings.batchSize;
+  }
+  
+  // 恢复当前会话 ID
+  if (activeId && state.sessions[activeId]) {
+    state.currentSessionId = activeId;
+  } else if (Object.keys(state.sessions).length > 0) {
+    // 如果 activeId 无效，则使用第一个会话
+    state.currentSessionId = Object.keys(state.sessions)[0];
+  } else {
+    // 没有任何会话，保持空字符串（由调用者创建）
+    state.currentSessionId = '';
+  }
+  
+  rebuildModels();
+  
+  // 如果有当前会话，重建画布（恢复画布项）
+  if (state.currentSessionId) {
+    await rebuildCanvasFromSession();
+  }
+  
+  // 通知所有监听器状态已更新
+  if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
+  if (listeners['currentSessionId']) listeners['currentSessionId'].forEach(fn => fn());
+  if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
+  if (listeners['materials']) listeners['materials'].forEach(fn => fn());
+  if (listeners['models']) listeners['models'].forEach(fn => fn());
+  if (listeners['selectedModelId']) listeners['selectedModelId'].forEach(fn => fn());
+  if (listeners['selectedProvider']) listeners['selectedProvider'].forEach(fn => fn());
+  if (listeners['providers']) listeners['providers'].forEach(fn => fn());
 }
 
 // --------------------------------------------------------------
@@ -1000,146 +1132,25 @@ export async function removeFromStack(stackId, childIndex) {
       width: 300,
       height: 300
     };
-    session.droppedImages = session.droppedImages || [];
+    if (!session.droppedImages) session.droppedImages = [];
     session.droppedImages.push(newDropped);
-    console.log(`[移出Stack调试] 已添加独立图片到画布, dropId=${dropId}`);
+    saveSessions();
+    console.log(`[移出Stack调试] 已添加为独立画布项, dropId=${dropId}`);
   }
 
-  // 如果 stack 只剩一个元素，则将其转换为普通图片
-  if (stack.items.length === 1) {
-    const last = stack.items[0];
-    const dropId = generateId();
-    const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
-    const newDropped = {
-      id: dropId,
-      imageUrl: last.imageUrl,
-      dataHash: last.dataHash || '',
-      canvasSeq: seq,
-      x: stack.x,
-      y: stack.y,
-      width: 300,
-      height: 300
-    };
-    session.droppedImages.push(newDropped);
-    session.stacks = session.stacks.filter(s => s.id !== stackId);
-    console.log(`[移出Stack调试] stack只剩一个元素, 已转换为普通图片并删除原stack`);
-  } else if (stack.items.length === 0) {
-    session.stacks = session.stacks.filter(s => s.id !== stackId);
-    console.log(`[移出Stack调试] stack已空, 已删除`);
+  // 如果堆叠组为空，删除整个堆叠组
+  if (stack.items.length === 0) {
+    const stackIndex = session.stacks.findIndex(s => s.id === stackId);
+    if (stackIndex !== -1) {
+      session.stacks.splice(stackIndex, 1);
+      console.log('[移出Stack调试] 堆叠组为空，已删除整个组');
+      saveSessions();
+    }
+  } else {
+    saveSessions();
   }
 
-  saveSessions();
-  console.log('[移出Stack调试] 准备重建画布');
   await rebuildCanvasFromSession();
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
-  console.log('[移出Stack调试] 完成 (本次移出1张)');
   return true;
-}
-
-// --------------------------------------------------------------
-// 初始化
-// --------------------------------------------------------------
-export async function initStore() {
-  state.sessions = await loadSessions();
-  state.materials = await loadMaterials();
-  const settings = await loadSettings();
-  state.selectedModelId = settings.selectedModelId || '';
-  state.selectedProvider = settings.selectedProvider || '';
-  state.providers = settings.providers || {};
-  rebuildModels();
-  state.reusePrompt = settings.reusePrompt === true;
-  state.reuseRef = settings.reuseRef === true;
-  state.batchSize = settings.batchSize || 1;
-  const savedId = await loadActiveId();
-  console.log('[初始化] sessions:', Object.keys(state.sessions).length, '个, materials:', state.materials.length, '个, 当前会话ID:', savedId);
-
-  if (savedId && !state.sessions[savedId]) {
-    state.sessions[savedId] = {
-      id: savedId,
-      title: '新会话',
-      createdAt: Date.now(),
-      _canvasSeq: 0,
-      stacks: []
-    };
-    saveSessions();
-    console.log('[初始化] 恢复缺失的会话:', savedId);
-  }
-
-  if (savedId && state.sessions[savedId]) {
-    state.currentSessionId = savedId;
-    console.log('[初始化] 存在已保存会话, 重建画布');
-    await rebuildCanvasFromSession();
-  } else {
-    const ids = Object.keys(state.sessions);
-    if (ids.length > 0) {
-      const fallbackId = ids[ids.length - 1];
-      state.currentSessionId = fallbackId;
-      saveActiveId(fallbackId);
-      console.log('[初始化] active 缺失，使用最近会话重建画布:', fallbackId);
-      await rebuildCanvasFromSession();
-    } else {
-      console.log('[初始化] 无已保存会话');
-    }
-  }
-
-  window.addEventListener('pagehide', () => {
-    const base = getStorageBase();
-    if (!base) return;
-
-    const sessionsPayload = JSON.stringify(sanitizeForSave(state.sessions));
-    if (!navigator.sendBeacon(base + '/api/sessions', sessionsPayload)) {
-      fetch(base + '/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: sessionsPayload, keepalive: true }).catch(() => { });
-    }
-
-    const materialsPayload = JSON.stringify(sanitizeForSave(state.materials));
-    if (!navigator.sendBeacon(base + '/api/materials', materialsPayload)) {
-      fetch(base + '/api/materials', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: materialsPayload, keepalive: true }).catch(() => { });
-    }
-
-    const settingsPayload = JSON.stringify({
-      selectedModelId: state.selectedModelId,
-      selectedProvider: state.selectedProvider,
-      providers: state.providers,
-      reusePrompt: state.reusePrompt,
-      reuseRef: state.reuseRef,
-      batchSize: state.batchSize
-    });
-    if (!navigator.sendBeacon(base + '/api/settings', settingsPayload)) {
-      fetch(base + '/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: settingsPayload, keepalive: true }).catch(() => { });
-    }
-
-    beaconPost('/api/active', { id: state.currentSessionId });
-  });
-}
-
-// --------------------------------------------------------------
-// 任务队列 API
-// --------------------------------------------------------------
-const STORAGE = () => import.meta.env.VITE_STORAGE_BASE || 'http://127.0.0.1:5001';
-
-export async function submitTask({ prompt, model, provider, refs }) {
-  const base = STORAGE();
-  const res = await fetch(`${base}/api/tasks`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt, model, provider, refs })
-  });
-  if (!res.ok) throw new Error(`submitTask HTTP ${res.status}`);
-  return res.json();
-}
-
-export async function fetchTasks() {
-  const base = STORAGE();
-  try {
-    const res = await fetch(`${base}/api/tasks`);
-    if (!res.ok) return [];
-    return await res.json();
-  } catch { return []; }
-}
-
-export async function cancelBackendTask(taskId) {
-  const base = STORAGE();
-  const res = await fetch(`${base}/api/tasks/${taskId}/cancel`, { method: 'POST' });
-  if (!res.ok) throw new Error(`cancelTask HTTP ${res.status}`);
-  return res.json();
 }
