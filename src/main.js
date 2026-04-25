@@ -8,6 +8,7 @@ import { initContextMenu } from './components/contextMenu.js';
 import { initModal } from './components/modal.js';
 import { initModelSelector } from './components/modelSelector.js';
 import { initCommandPalette } from './components/commandPalette.js';
+import { initSettingsModal } from './components/settingsModal.js';
 
 (async () => {
   // Initialize store (loads from backend SQLite)
@@ -28,6 +29,7 @@ import { initCommandPalette } from './components/commandPalette.js';
   initModal();
   initModelSelector();
   initCommandPalette();
+  initSettingsModal();
 
   // Subscribe to status text updates
   subscribe('statusText', () => {

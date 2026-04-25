@@ -11,37 +11,12 @@
     <div class="history-section">
       <div class="history-header">
         <h2>聊天记录</h2>
-        <button class="new-session-btn" id="newSessionBtn" title="新建会话">+</button>
+        <div style="display:flex;gap:6px">
+          <button class="new-session-btn" id="settingsBtn" title="设置" style="font-size:16px;">⚙</button>
+          <button class="new-session-btn" id="newSessionBtn" title="新建会话">+</button>
+        </div>
       </div>
       <div class="history-list" id="sessionList"></div>
-    </div>
-
-    <div class="material-section">
-      <div class="material-header">
-        <h2>素材库</h2>
-        <button class="new-session-btn" id="addMaterialBtn" title="添加素材">+</button>
-        <input type="file" id="materialFileInput" accept="image/*" multiple style="display:none">
-      </div>
-      <div class="material-list" id="materialList"></div>
-    </div>
-
-    <div class="settings-section">
-      <h2>设置</h2>
-
-      <div class="setting-group">
-        <label>API 地址</label>
-        <input type="text" id="apiBase" value="http://127.0.0.1:8000">
-      </div>
-
-      <div class="setting-group">
-        <label>API Key</label>
-        <input type="text" id="apiKey" value="sk-000530">
-      </div>
-
-      <div class="setting-group">
-        <label>存储后端</label>
-        <input type="text" id="storageBase" value="http://127.0.0.1:5001" placeholder="留空使用本地存储">
-      </div>
     </div>
   </div>
 
@@ -80,6 +55,17 @@
         <button class="reuse-toggle" id="reuseRefToggle" title="复用参考图（发送后不清除参考图）">🖼️</button>
         <button class="generate-btn" id="generateBtn">生成</button>
       </div>
+    </div>
+  </div>
+
+  <div class="sidebar-right">
+    <div class="material-section">
+      <div class="material-header">
+        <h2>素材库</h2>
+        <button class="new-session-btn" id="addMaterialBtn" title="添加素材">+</button>
+        <input type="file" id="materialFileInput" accept="image/*" multiple style="display:none">
+      </div>
+      <div class="material-list" id="materialList"></div>
     </div>
   </div>
 
@@ -169,6 +155,143 @@
       <div class="modal-body cmd-body">
         <input type="text" class="model-filter" id="commandPaletteInput" placeholder="输入命令关键词..." autocomplete="off" spellcheck="false">
         <div class="cmd-list" id="commandList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-overlay" id="settingsModalOverlay" style="display:none">
+    <div class="settings-modal-content">
+      <div class="modal-header">
+        <h3>设置</h3>
+        <button class="modal-close" id="settingsModalCloseBtn">×</button>
+      </div>
+      <div class="settings-body">
+        <!-- Left: Provider sidebar -->
+        <div class="settings-sidebar">
+          <div class="settings-sidebar-header">
+            <span class="settings-sidebar-title">供应商</span>
+            <button class="settings-sidebar-add" id="settingsSidebarAdd" title="添加供应商">+</button>
+          </div>
+          <div class="settings-provider-items" id="settingsProviderItems"></div>
+        </div>
+        <!-- Right: Provider config -->
+        <div class="settings-main" id="settingsMain">
+          <!-- Empty state -->
+          <div class="settings-empty" id="settingsEmpty">
+            <div class="settings-empty-icon">⚙</div>
+            <div>请选择一个供应商</div>
+            <div class="settings-empty-hint">从左侧列表中选择或添加一个供应商进行配置</div>
+          </div>
+          <!-- Config content -->
+          <div class="settings-config" id="settingsConfig" style="display:none">
+            <!-- Header -->
+            <div class="settings-config-header">
+              <div class="settings-config-info">
+                <span class="settings-provider-icon" id="settingsProviderIcon">●</span>
+                <div>
+                  <h4 id="settingsProviderName">--</h4>
+                  <span class="settings-provider-badge" id="settingsProviderBadge">官方</span>
+                </div>
+              </div>
+              <div class="settings-config-actions">
+                <button class="settings-btn" id="settingsTestBtn">
+                  <span id="settingsTestText">测试连接</span>
+                </button>
+                <button class="settings-btn" id="settingsDeleteBtn" title="删除此供应商">删除</button>
+              </div>
+            </div>
+            <!-- API Config -->
+            <div class="settings-section">
+              <div class="settings-section-title">基础配置</div>
+              <div class="settings-card">
+                <div class="settings-field">
+                  <label>API Key</label>
+                  <input type="password" id="settingsApiKey" placeholder="输入 API Key" spellcheck="false">
+                </div>
+                <div class="settings-field">
+                  <label>接口代理地址 (Base URL)</label>
+                  <input type="text" id="settingsBaseUrl" placeholder="https://api.openai.com/v1" spellcheck="false">
+                </div>
+              </div>
+            </div>
+            <!-- Model List -->
+            <div class="settings-section">
+              <div class="settings-section-title">
+                可用模型 (<span id="settingsModelCount">0</span>)
+              </div>
+              <div class="settings-card">
+                <table class="settings-model-table">
+                  <thead>
+                    <tr>
+                      <th style="width:44px">启用</th>
+                      <th>模型名称</th>
+                      <th style="width:70px">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody id="settingsModelList">
+                    <tr><td colspan="3" class="settings-empty-row">暂无模型，请点击下方按钮获取</td></tr>
+                  </tbody>
+                </table>
+                <div class="settings-model-actions">
+                  <button class="settings-btn settings-btn-sm" id="settingsFetchModels">↻ 获取模型</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Provider Modal -->
+  <div class="modal-overlay" id="addProviderOverlay" style="display:none">
+    <div class="ap-modal">
+      <div class="ap-header">
+        <div>
+          <h2>添加供应商</h2>
+          <p class="ap-subtitle">选择一个服务提供商来开始配置</p>
+        </div>
+        <button class="modal-close" id="apCloseBtn">×</button>
+      </div>
+
+      <!-- Grid mode -->
+      <div id="apBody">
+        <div class="ap-search">
+          <input type="text" id="apSearch" placeholder="搜索供应商名称或描述..." autocomplete="off">
+        </div>
+        <div class="ap-grid" id="apGrid"></div>
+      </div>
+
+      <!-- Custom mode -->
+      <div id="apCustom" style="display:none">
+        <div class="ap-custom-header">
+          <button class="ap-back-btn" id="apCustomBack">← 返回</button>
+          <h3>自定义提供商</h3>
+        </div>
+        <div class="ap-custom-form">
+          <div class="ap-custom-field">
+            <label>名称</label>
+            <input type="text" id="apCustomName" placeholder="如 My Provider" autocomplete="off">
+          </div>
+          <div class="ap-custom-field">
+            <label>API 地址</label>
+            <input type="text" id="apCustomBase" placeholder="https://api.example.com/v1" value="http://127.0.0.1:8000">
+          </div>
+          <div class="ap-custom-field">
+            <label>API Key</label>
+            <input type="text" id="apCustomKey" placeholder="输入 API Key（可选）">
+          </div>
+          <button class="ap-custom-submit" id="apCustomSubmit">添加提供商</button>
+        </div>
+      </div>
+
+      <div class="ap-footer">
+        <span class="ap-footer-hint">支持多种 API 协议</span>
+        <div class="ap-footer-buttons">
+          <button class="settings-btn" id="apCancelBtn">取消</button>
+          <button class="settings-btn" id="apCustomBtn">使用自定义提供商</button>
+        </div>
       </div>
     </div>
   </div>

@@ -10,6 +10,8 @@ const state = {
   reuseRef: false,
   models: [],
   selectedModelId: '',
+  selectedProvider: '',
+  providers: {},
   materials: [],
   viewport: { panX: 0, panY: 0, zoom: 1 },
   statusText: '就绪',
@@ -68,7 +70,7 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
-  if ('selectedModelId' in partial || 'reusePrompt' in partial || 'reuseRef' in partial) {
+  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial) {
     saveSettings();
   }
   for (const key of Object.keys(partial)) {
@@ -76,11 +78,78 @@ export function setState(partial) {
   }
 }
 
+// --- Provider management ---
+
+export function getProviderConfig(name) {
+  return state.providers[name] || null;
+}
+
+function rebuildModels() {
+  const allModels = [];
+  Object.entries(state.providers).forEach(([name, provider]) => {
+    (provider.models || []).forEach(m => {
+      if (m.enabled !== false) {
+        allModels.push({ id: m.id, owner: m.owner || name, provider: name });
+      }
+    });
+  });
+  state.models = allModels;
+  if (listeners['models']) listeners['models'].forEach(fn => fn());
+}
+
+export function addProvider(name, base_url, api_key) {
+  if (state.providers[name]) return false;
+  state.providers[name] = { base_url, api_key, models: [] };
+  saveSettings();
+  return true;
+}
+
+export function removeProvider(name) {
+  if (!state.providers[name]) return;
+  delete state.providers[name];
+  if (state.selectedProvider === name) {
+    state.selectedProvider = '';
+    state.selectedModelId = '';
+  }
+  rebuildModels();
+  saveSettings();
+}
+
+export function updateProviderModels(name, models) {
+  if (!state.providers[name]) return;
+  const existing = state.providers[name].models || [];
+  state.providers[name].models = models.map(m => {
+    const prev = existing.find(em => em.id === m.id);
+    return { ...m, enabled: prev ? prev.enabled : true };
+  });
+  rebuildModels();
+  saveSettings();
+  if (listeners['providers']) listeners['providers'].forEach(fn => fn());
+}
+
+export function toggleModelEnabled(providerName, modelId) {
+  const provider = state.providers[providerName];
+  if (!provider) return;
+  const model = (provider.models || []).find(m => m.id === modelId);
+  if (!model) return;
+  model.enabled = !model.enabled;
+  rebuildModels();
+  saveSettings();
+  if (listeners['providers']) listeners['providers'].forEach(fn => fn());
+}
+
+export function updateProviderConfig(name, config) {
+  if (!state.providers[name]) return;
+  Object.assign(state.providers[name], config);
+  saveSettings();
+}
+
 // --- Backend storage ---
 
+const STORAGE_BASE = import.meta.env.VITE_STORAGE_BASE || 'http://127.0.0.1:5001';
+
 function getStorageBase() {
-  const el = document.getElementById('storageBase');
-  return el ? el.value.replace(/\/+$/, '') : '';
+  return STORAGE_BASE.replace(/\/+$/, '');
 }
 
 function saveSettings() {
@@ -107,6 +176,8 @@ function debouncedBackendSync() {
     try {
       await apiPost('/api/settings', {
         selectedModelId: state.selectedModelId,
+        selectedProvider: state.selectedProvider,
+        providers: state.providers,
         reusePrompt: state.reusePrompt,
         reuseRef: state.reuseRef
       });
@@ -611,6 +682,9 @@ export async function initStore() {
   state.materials = await loadMaterials();
   const settings = await loadSettings();
   state.selectedModelId = settings.selectedModelId || '';
+  state.selectedProvider = settings.selectedProvider || '';
+  state.providers = settings.providers || {};
+  rebuildModels();
   state.reusePrompt = settings.reusePrompt === true;
   state.reuseRef = settings.reuseRef === true;
   const savedId = await loadActiveId();
@@ -649,6 +723,8 @@ export async function initStore() {
 
     const settingsPayload = JSON.stringify({
       selectedModelId: state.selectedModelId,
+      selectedProvider: state.selectedProvider,
+      providers: state.providers,
       reusePrompt: state.reusePrompt,
       reuseRef: state.reuseRef
     });

@@ -1,8 +1,14 @@
+import { getState } from './store.js';
+
 export function getApiConfig() {
-  return {
-    base: document.getElementById('apiBase').value.replace(/\/+$/, ''),
-    key: document.getElementById('apiKey').value
-  };
+  const { selectedProvider, providers } = getState();
+  if (selectedProvider && providers[selectedProvider]) {
+    return {
+      base: providers[selectedProvider].base_url.replace(/\/+$/, ''),
+      key: providers[selectedProvider].api_key || ''
+    };
+  }
+  return { base: '', key: '' };
 }
 
 export async function fetchModels({ base, key }) {
