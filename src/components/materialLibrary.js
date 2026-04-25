@@ -89,9 +89,11 @@ function renderMaterialLibrary() {
     const { materials, materialStacks } = getState();
     
     let allItems = getFlattenedMaterialItems(currentTab);
+    console.log(`[渲染素材库] 当前标签页: ${currentTab}, 从 getFlattenedMaterialItems 获得 ${allItems.length} 个项`);
     if (searchQuery.trim()) {
         const lowerQuery = searchQuery.toLowerCase();
         allItems = allItems.filter(item => item.name.toLowerCase().includes(lowerQuery));
+        console.log(`[渲染素材库] 搜索过滤后剩余 ${allItems.length} 个项`);
     }
     
     // 构建树形结构：堆叠组加子项（如果展开）
@@ -142,7 +144,9 @@ function renderMaterialLibrary() {
     }
     
     // 额外调试：输出所有素材的 parentStackId
-    console.log('[渲染调试] 当前所有素材的 parentStackId 映射:', materials.map(m => ({ id: m.id, parent: m.parentStackId })));
+    console.log('[渲染调试] 当前所有素材的 parentStackId 映射:', materials.map(m => ({ id: m.id, name: m.name, parent: m.parentStackId, category: m.category })));
+    console.log('[渲染调试] 当前所有堆叠组:', materialStacks.map(s => ({ id: s.id, name: s.name, category: s.category, children: s.children })));
+    console.log('[渲染调试] 即将渲染的 renderItems 数量:', renderItems.length);
     
     // 新的渲染方式：使用类似 MediaAssetsSidebar 的设计，每个素材项具有更丰富的视觉元素
     const html = renderItems.map((entry) => {
@@ -426,6 +430,29 @@ async function handleDrop(e) {
     e.preventDefault();
     const target = e.target.closest('.mat-item');
     
+    // 处理外部拖拽（例如从画布拖拽图片到素材库）
+    if (dragSourceIds.length === 0) {
+        const jsonData = e.dataTransfer.getData('application/json');
+        if (jsonData) {
+            try {
+                const { name, dataUrl } = JSON.parse(jsonData);
+                if (dataUrl) {
+                    await addMaterial(name, dataUrl, currentTab);
+                    showToast(`素材“${name}”已添加到素材库`, 'success');
+                    renderMaterialLibrary();
+                }
+            } catch (err) {
+                console.error('解析外部拖拽数据失败:', err);
+            }
+        }
+        // 清除拖拽状态
+        dragSourceIds = [];
+        dragOverTargetId = null;
+        dragSourceParentStackId = null;
+        renderMaterialLibrary();
+        return;
+    }
+    
     // 如果没有目标元素，视为拖拽到根区域
     if (!target) {
         // 移出到根区域
@@ -516,16 +543,34 @@ function findItemById(id) {
 function initRootDropTarget() {
     if (!materialListContainer) return;
     materialListContainer.addEventListener('dragover', (e) => {
-        // 只有没有直接子元素目标时才认为是根区域拖拽
+        // 只要鼠标不在素材项上，就认为是根区域拖拽（接受外部拖拽）
         if (!e.target.closest('.mat-item')) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
         }
     });
     materialListContainer.addEventListener('drop', async (e) => {
+        // 如果拖拽源是空的，则可能是外部拖拽（从画布拖图片）
+        if (dragSourceIds.length === 0) {
+            e.preventDefault();
+            const jsonData = e.dataTransfer.getData('application/json');
+            if (jsonData) {
+                try {
+                    const { name, dataUrl } = JSON.parse(jsonData);
+                    if (dataUrl) {
+                        await addMaterial(name, dataUrl, currentTab);
+                        showToast(`素材“${name}”已添加到素材库`, 'success');
+                        renderMaterialLibrary();
+                    }
+                } catch (err) {
+                    console.error('解析外部拖拽数据失败:', err);
+                }
+            }
+            return;
+        }
+        // 内部拖拽到根区域：移出到根
         if (!e.target.closest('.mat-item') && dragSourceIds.length > 0) {
             e.preventDefault();
-            // 移出到根
             moveMaterialToStack(dragSourceIds, null);
             selectedMaterialIds = [];
             setState({ selectedMaterialIds });

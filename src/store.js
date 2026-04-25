@@ -789,10 +789,11 @@ async function loadMaterials() {
       const parsed = JSON.parse(localData);
       if (parsed.materials && Array.isArray(parsed.materials)) {
         console.log('[加载] 从 localStorage 加载素材库 v2:', parsed.materials.length, '个素材,', parsed.materialStacks?.length || 0, '个堆叠组');
-        // 确保每个素材有必要的字段
+        // 确保每个素材有必要的字段，并将 undefined 的 parentStackId 转为 null
         parsed.materials.forEach(m => {
           if (!m.category) m.category = 'Imported';
           if (!m.type) m.type = 'image';
+          if (m.parentStackId === undefined) m.parentStackId = null;
         });
         // 修复 parentStackId 映射
         const migrated = migrateMaterialParentIds(parsed.materials, parsed.materialStacks || []);
@@ -819,11 +820,12 @@ async function loadMaterials() {
     }
   } catch (e) { console.log('[加载] 后端 materials 不可用:', e.message); }
 
-  // 转换为新格式，默认 category = 'Imported'
+  // 转换为新格式，默认 category = 'Imported'，并确保 parentStackId 为 null
   const materials = remote.map(m => ({
     ...m,
     category: 'Imported',
-    type: 'image'
+    type: 'image',
+    parentStackId: null
   }));
   return { materials, materialStacks: [] };
 }
@@ -843,7 +845,31 @@ export async function addMaterial(name, dataUrl, category = 'Imported') {
   const hash = await computeDataUrlHash(dataUrl);
   const existing = state.materials.find(m => m.dataHash === hash);
   if (existing) {
-    setState({ statusText: '素材已存在，跳过添加' });
+    // 如果素材已存在但属于某个堆叠组（parentStackId 不为 null），将其移出到根（独立素材）
+    if (existing.parentStackId) {
+      console.log(`[addMaterial] 素材 "${existing.name}" 已在堆叠组 ${existing.parentStackId} 中，正在移出到独立素材...`);
+      // 从原堆叠组中移除
+      const oldStack = state.materialStacks.find(s => s.id === existing.parentStackId);
+      if (oldStack) {
+        oldStack.children = oldStack.children.filter(cid => cid !== existing.id);
+        // 如果堆叠组变空，删除该组
+        if (oldStack.children.length === 0) {
+          state.materialStacks = state.materialStacks.filter(s => s.id !== oldStack.id);
+          console.log(`[addMaterial] 原堆叠组 ${oldStack.id} 已变空，已删除`);
+        } else {
+          // 更新缩略图
+          const firstChild = state.materials.find(m => m.id === oldStack.children[0]);
+          if (firstChild) oldStack.thumbnail = firstChild.dataUrl;
+        }
+      }
+      existing.parentStackId = null;
+      saveMaterials();
+      if (listeners['materials']) listeners['materials'].forEach(fn => fn());
+      if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
+      setState({ statusText: `素材“${existing.name}”已从堆叠组移出并显示` });
+    } else {
+      setState({ statusText: '素材已存在，跳过添加' });
+    }
     return existing;
   }
 
@@ -1023,16 +1049,53 @@ export function moveMaterialToStack(materialIds, targetStackId = null) {
   if (listeners['materials']) listeners['materials'].forEach(fn => fn());
 }
 
+// 清理孤儿素材：将 parentStackId 指向不存在的堆叠组的素材重置为独立素材
+export function cleanupOrphanMaterials() {
+  let changed = false;
+  for (const material of state.materials) {
+    if (material.parentStackId) {
+      const stackExists = state.materialStacks.some(s => s.id === material.parentStackId);
+      if (!stackExists) {
+        delete material.parentStackId;
+        changed = true;
+      }
+    }
+  }
+  if (changed) {
+    saveMaterials();
+    if (listeners['materials']) listeners['materials'].forEach(fn => fn());
+    if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
+  }
+}
+
 // 获取合并后的视图数据（独立素材 + 堆叠组）
-// 注意：独立素材是指 parentStackId === null 的素材，不包括已分组的子素材
+// 注意：独立素材是指 parentStackId 为 null 或 undefined 的素材（即未分组），不包括已分组的子素材
 export function getFlattenedMaterialItems(category = null) {
+  // 在获取前先清理孤儿素材，确保数据一致性
+  cleanupOrphanMaterials();
+  
+  // 调试输出：所有素材的完整信息
+  console.log(`[getFlattenedMaterialItems] 开始获取，category = ${category}`);
+  console.log(`[getFlattenedMaterialItems] 素材总数: ${state.materials.length}`);
+  state.materials.forEach(m => {
+    console.log(`  素材: id=${m.id}, name=${m.name}, category=${m.category}, parentStackId=${m.parentStackId}`);
+  });
+  console.log(`[getFlattenedMaterialItems] 堆叠组总数: ${state.materialStacks.length}`);
+  state.materialStacks.forEach(s => {
+    console.log(`  堆叠组: id=${s.id}, name=${s.name}, category=${s.category}, children数量=${s.children.length}`);
+  });
+  
   const items = [];
-  // 添加独立素材（parentStackId 为 null）
-  const filteredMats = state.materials.filter(m => m.parentStackId === null && (category ? m.category === category : true));
+  // 添加独立素材：parentStackId 不是有效堆叠组 ID 的素材（即 null 或 undefined 或孤儿）
+  // 使用宽松的条件：!m.parentStackId 包括 null, undefined, 空字符串
+  const filteredMats = state.materials.filter(m => (!m.parentStackId) && (category ? m.category === category : true));
+  console.log(`[getFlattenedMaterialItems] 独立素材（无 parentStackId）过滤后数量: ${filteredMats.length}`);
   items.push(...filteredMats);
   // 添加堆叠组
   const filteredStacks = category ? state.materialStacks.filter(s => s.category === category) : [...state.materialStacks];
+  console.log(`[getFlattenedMaterialItems] 堆叠组过滤后数量: ${filteredStacks.length}`);
   items.push(...filteredStacks);
+  console.log(`[getFlattenedMaterialItems] 最终返回的 items 总数: ${items.length}`);
   return items;
 }
 
