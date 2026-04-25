@@ -19,6 +19,9 @@ const state = {
   batchSize: 1
 };
 
+// --------------------------------------------------------------
+// 工具函数
+// --------------------------------------------------------------
 function sanitizeForSave(obj) {
   if (typeof obj !== 'object' || obj === null) return obj;
   const clone = Array.isArray(obj) ? [] : {};
@@ -84,8 +87,9 @@ export function setState(partial) {
   }
 }
 
-// --- Provider management ---
-
+// --------------------------------------------------------------
+// Provider 管理
+// --------------------------------------------------------------
 export function getProviderConfig(name) {
   return state.providers[name] || null;
 }
@@ -150,8 +154,9 @@ export function updateProviderConfig(name, config) {
   saveSettings();
 }
 
-// --- Backend storage ---
-
+// --------------------------------------------------------------
+// 后端存储
+// --------------------------------------------------------------
 const STORAGE_BASE = import.meta.env.VITE_STORAGE_BASE || 'http://127.0.0.1:5001';
 
 function getStorageBase() {
@@ -192,7 +197,6 @@ function debouncedBackendSync() {
   }, 200);
 }
 
-// Send data to backend via fetch (async) or sendBeacon (for unload)
 async function apiGet(path) {
   const base = getStorageBase();
   if (!base) throw new Error('no backend');
@@ -225,7 +229,6 @@ function beaconPost(path, data) {
   navigator.sendBeacon(base + path, JSON.stringify(data));
 }
 
-// Strip .ext from backend image API URLs (legacy cleanup)
 function sanitizeImageUrl(url) {
   return url ? url.replace(/\/api\/images\/[a-f0-9]+\.\w+/g, m => m.replace(/\.\w+$/, '')) : url;
 }
@@ -259,6 +262,10 @@ async function loadSessions() {
     const remote = await apiGet('/api/sessions');
     if (remote && Object.keys(remote).length > 0) {
       console.log('[加载] sessions 从后端加载:', Object.keys(remote).length, '个');
+      // 确保每个 session 有 stacks 字段
+      for (const id of Object.keys(remote)) {
+        if (!remote[id].stacks) remote[id].stacks = [];
+      }
       return remote;
     }
   } catch (e) { console.log('[加载] 后端 sessions 不可用:', e.message); }
@@ -287,16 +294,13 @@ function saveActiveIdToLocalStorage(id) {
 }
 
 async function loadActiveId() {
-  // Try localStorage first (most recent user action, more reliable for single-user)
   const localId = loadActiveIdFromLocalStorage();
   if (localId) {
     console.log('[加载] 使用 localStorage 中的会话 ID:', localId);
-    // Optionally sync back to backend when it becomes available
     beaconPost('/api/active', { id: localId });
     return localId;
   }
 
-  // Fallback to backend
   let backendId = '';
   try {
     const val = await apiGet('/api/active');
@@ -312,21 +316,21 @@ async function loadActiveId() {
 }
 
 function saveActiveId(id) {
-  // Save to backend via beacon
   beaconPost('/api/active', { id });
-  // Also save to localStorage for fallback
   saveActiveIdToLocalStorage(id);
 }
 
-// --- Session management ---
-
+// --------------------------------------------------------------
+// 会话管理
+// --------------------------------------------------------------
 export async function createSession() {
   const id = generateId();
   state.sessions[id] = {
     id,
     title: '新会话',
     createdAt: Date.now(),
-    _canvasSeq: 0
+    _canvasSeq: 0,
+    stacks: []      // 新增：存储堆叠组
   };
   saveSessions();
   await switchSession(id);
@@ -365,7 +369,6 @@ export async function appendMessage(msg) {
   const session = state.sessions[state.currentSessionId];
   if (!session) return null;
 
-  // Upload reference images to backend first so session data stays small
   if (msg.role === 'user' && msg.refImages && msg.refImages.length > 0) {
     msg.refImages = await Promise.all(msg.refImages.map(async img => {
       if (img.dataUrl && img.dataUrl.startsWith('data:')) {
@@ -391,8 +394,9 @@ export async function appendMessage(msg) {
   return msg;
 }
 
-// --- Canvas item management ---
-
+// --------------------------------------------------------------
+// 画布元素管理
+// --------------------------------------------------------------
 function getViewportCenter() {
   const container = document.getElementById('canvasContainer');
   if (!container) return { cx: 200, cy: 200 };
@@ -403,8 +407,9 @@ function getViewportCenter() {
   };
 }
 
-// --- Generating placeholders ---
-
+// --------------------------------------------------------------
+// 生成占位符
+// --------------------------------------------------------------
 export function addGeneratingPlaceholder(prompt, refImages, taskId) {
   const id = generateId();
   const item = {
@@ -416,7 +421,8 @@ export function addGeneratingPlaceholder(prompt, refImages, taskId) {
     refImages: refImages || [],
     generating: true,
     status: 'generating',
-    error: ''
+    error: '',
+    type: 'image'
   };
   state.canvasItems.push(item);
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
@@ -427,7 +433,6 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
   const session = state.sessions[state.currentSessionId];
   if (!session) return null;
 
-  // Upload refImages to backend first so session data stays small
   let uploadRefs = refImages || [];
   if (uploadRefs.length > 0) {
     uploadRefs = await Promise.all(uploadRefs.map(async img => {
@@ -439,7 +444,6 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
     }));
   }
 
-  // Remove the generating placeholder for this generation
   if (placeholderId) {
     state.canvasItems = state.canvasItems.filter(it => it.itemId !== placeholderId);
   }
@@ -481,7 +485,8 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
     height: isErr ? 80 : 300,
     generating: false,
     status: status || 'ok',
-    error: error || ''
+    error: error || '',
+    type: 'image'
   };
 
   msg.x = item.x;
@@ -501,13 +506,10 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
   return item;
 }
 
-// --- Dropped external images ---
-
 export async function addDroppedImage(dataUrl) {
   const session = state.sessions[state.currentSessionId];
   if (!session) return null;
 
-  // Upload image data to backend first so session payload stays small
   const savedUrl = await ensureImageUrl(dataUrl);
   const hash = await computeDataUrlHash(dataUrl);
 
@@ -527,9 +529,17 @@ export async function addDroppedImage(dataUrl) {
   const displayUrl = resolveBackendUrl(savedUrl);
 
   const item = {
-    itemId: 'drop-' + id, messageIndex: -1, imageUrl: displayUrl || savedUrl, prompt: '',
-    refImages: [], x, y, width: 300, height: 300,
-    generating: false, status: 'ok', error: '', dropId: id
+    itemId: 'drop-' + id,
+    messageIndex: -1,
+    imageUrl: displayUrl || savedUrl,
+    prompt: '',
+    refImages: [],
+    x, y, width: 300, height: 300,
+    generating: false,
+    status: 'ok',
+    error: '',
+    dropId: id,
+    type: 'image'
   };
   state.canvasItems.push(item);
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
@@ -552,6 +562,9 @@ export function updateCanvasItemPosition(itemId, x, y) {
     session.messages[item.messageIndex].x = x;
     session.messages[item.messageIndex].y = y;
     saveSessions();
+  } else if (item.type === 'stack' && session.stacks) {
+    const stack = session.stacks.find(s => s.id === item.itemId.substring(5)); // remove 'stack-'
+    if (stack) { stack.x = x; stack.y = y; saveSessions(); }
   }
 }
 
@@ -575,6 +588,10 @@ export function removeCanvasItemById(itemId) {
       session.messages.splice(item.messageIndex, 1);
     }
     saveSessions();
+  } else if (item.type === 'stack' && session.stacks) {
+    const stackId = item.itemId.substring(5);
+    session.stacks = session.stacks.filter(s => s.id !== stackId);
+    saveSessions();
   }
 
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
@@ -584,64 +601,65 @@ export function removeCanvasItemById(itemId) {
 export async function rebuildCanvasFromSession() {
   state.canvasItems = [];
   const session = state.sessions[state.currentSessionId];
-  if (!session || !session.messages) {
-    console.log('[重建画布] 无当前会话或会话无消息, session:', !!session, 'messages:', !!session?.messages);
+  if (!session) {
+    console.log('[重建画布] 无当前会话');
     return;
   }
 
   console.log('[重建画布] 当前会话:', session.id, '标题:', session.title,
-    '消息数:', session.messages.length,
-    'droppedImages:', session.droppedImages?.length || 0);
-
-  session.messages.forEach((msg, i) => {
-    if (msg.role === 'assistant') {
-      console.log(`[重建画布] 消息[${i}] role=${msg.role} status=${msg.status} canvasSeq=${msg.canvasSeq} imageUrl=${msg.imageUrl ? msg.imageUrl.slice(0, 80) + '...' : '无'}`);
-    }
-  });
+    '消息数:', session.messages?.length || 0,
+    'droppedImages:', session.droppedImages?.length || 0,
+    'stacks:', session.stacks?.length || 0);
 
   const items = [];
   let lastUserMsg = null;
 
-  session.messages.forEach((msg, i) => {
-    if (msg.role === 'user') {
-      lastUserMsg = msg;
-    } else if (msg.role === 'assistant') {
-      if (msg.status === 'ok' && msg.imageUrl) {
-        items.push({
-          itemId: 'item-' + i,
-          messageIndex: i,
-          imageUrl: resolveBackendUrl(msg.imageUrl),
-          prompt: msg.prompt || (lastUserMsg ? lastUserMsg.prompt : ''),
-          refImages: msg.refImages || (lastUserMsg ? lastUserMsg.refImages || [] : []),
-          x: msg.x != null ? msg.x : 50,
-          y: msg.y != null ? msg.y : 50,
-          width: msg.width || 300,
-          height: msg.height || 300,
-          generating: false,
-          status: 'ok',
-          error: '',
-          canvasSeq: msg.canvasSeq
-        });
-      } else if (msg.status === 'error') {
-        items.push({
-          itemId: 'item-' + i,
-          messageIndex: i,
-          imageUrl: '',
-          prompt: msg.prompt || (lastUserMsg ? lastUserMsg.prompt : ''),
-          refImages: msg.refImages || [],
-          x: msg.x || 50,
-          y: msg.y || 50,
-          width: 300,
-          height: 80,
-          generating: false,
-          status: 'error',
-          error: msg.error || '',
-          canvasSeq: msg.canvasSeq
-        });
+  // 处理 messages（如果存在）
+  if (session.messages) {
+    session.messages.forEach((msg, i) => {
+      if (msg.role === 'user') {
+        lastUserMsg = msg;
+      } else if (msg.role === 'assistant') {
+        if (msg.status === 'ok' && msg.imageUrl) {
+          items.push({
+            itemId: 'item-' + i,
+            messageIndex: i,
+            imageUrl: resolveBackendUrl(msg.imageUrl),
+            prompt: msg.prompt || (lastUserMsg ? lastUserMsg.prompt : ''),
+            refImages: msg.refImages || (lastUserMsg ? lastUserMsg.refImages || [] : []),
+            x: msg.x != null ? msg.x : 50,
+            y: msg.y != null ? msg.y : 50,
+            width: msg.width || 300,
+            height: msg.height || 300,
+            generating: false,
+            status: 'ok',
+            error: '',
+            canvasSeq: msg.canvasSeq,
+            type: 'image'
+          });
+        } else if (msg.status === 'error') {
+          items.push({
+            itemId: 'item-' + i,
+            messageIndex: i,
+            imageUrl: '',
+            prompt: msg.prompt || (lastUserMsg ? lastUserMsg.prompt : ''),
+            refImages: msg.refImages || [],
+            x: msg.x || 50,
+            y: msg.y || 50,
+            width: 300,
+            height: 80,
+            generating: false,
+            status: 'error',
+            error: msg.error || '',
+            canvasSeq: msg.canvasSeq,
+            type: 'image'
+          });
+        }
       }
-    }
-  });
+    });
+  }
 
+  // 处理 droppedImages
   if (session.droppedImages) {
     session.droppedImages.forEach(img => {
       items.push({
@@ -659,12 +677,38 @@ export async function rebuildCanvasFromSession() {
         error: '',
         dropId: img.id,
         dataHash: img.dataHash,
-        canvasSeq: img.canvasSeq
+        canvasSeq: img.canvasSeq,
+        type: 'image'
       });
     });
   }
 
-  // Sort by canvasSeq
+  // 处理 stacks
+  if (session.stacks) {
+    session.stacks.forEach(stack => {
+      if (stack.items && stack.items.length > 0) {
+        // 确保缩略图 URL 被解析
+        const thumbnail = stack.items[0].imageUrl ? resolveBackendUrl(stack.items[0].imageUrl) : '';
+        items.push({
+          itemId: 'stack-' + stack.id,
+          type: 'stack',
+          stackId: stack.id,
+          items: stack.items,           // 子图片原始数据（包含所有原始字段）
+          x: stack.x != null ? stack.x : 50,
+          y: stack.y != null ? stack.y : 50,
+          width: stack.width || 300,
+          height: stack.height || 300,
+          thumbnail: thumbnail,
+          count: stack.items.length,
+          status: 'ok',                // 确保 status 为 ok 以正常渲染
+          generating: false,
+          imageUrl: thumbnail          // 提供 imageUrl 以便通用逻辑回退（可选）
+        });
+      }
+    });
+  }
+
+  // 按 canvasSeq 排序
   if (items.length > 0 && items.every(it => it.canvasSeq != null)) {
     items.sort((a, b) => a.canvasSeq - b.canvasSeq);
   }
@@ -673,8 +717,9 @@ export async function rebuildCanvasFromSession() {
   console.log('[重建画布] 完成, canvasItems:', items.length, '个, 顺序:', items.map(it => `${it.itemId}(seq=${it.canvasSeq})`).join(', '));
 }
 
-// --- Materials ---
-
+// --------------------------------------------------------------
+// 素材库
+// --------------------------------------------------------------
 async function computeDataUrlHash(dataUrl) {
   const data = new TextEncoder().encode(dataUrl);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
@@ -720,8 +765,280 @@ export function removeMaterial(id) {
   if (listeners['materials']) listeners['materials'].forEach(fn => fn());
 }
 
-// --- Init ---
+// --------------------------------------------------------------
+// Stack 操作
+// --------------------------------------------------------------
+function findItemSource(itemId) {
+  const session = state.sessions[state.currentSessionId];
+  if (!session) return null;
 
+  // 检查是否为 dropped image
+  const dropMatch = itemId.match(/^drop-(.+)$/);
+  if (dropMatch) {
+    const dropId = dropMatch[1];
+    const img = session.droppedImages?.find(d => d.id === dropId);
+    if (img) return { type: 'dropped', data: img, id: dropId };
+  }
+
+  // 检查是否为 assistant message
+  const msgMatch = itemId.match(/^item-(\d+)$/);
+  if (msgMatch) {
+    const idx = parseInt(msgMatch[1], 10);
+    const msg = session.messages?.[idx];
+    if (msg && msg.role === 'assistant') return { type: 'message', data: msg, index: idx };
+  }
+  return null;
+}
+
+function removeItemFromSource(itemId) {
+  const source = findItemSource(itemId);
+  const session = state.sessions[state.currentSessionId];
+  if (!session || !source) return false;
+
+  if (source.type === 'dropped') {
+    session.droppedImages = session.droppedImages.filter(d => d.id !== source.id);
+  } else if (source.type === 'message') {
+    const idx = source.index;
+    const userIdx = idx - 1;
+    if (userIdx >= 0 && session.messages[userIdx]?.role === 'user') {
+      session.messages.splice(userIdx, 2);
+    } else {
+      session.messages.splice(idx, 1);
+    }
+  }
+  saveSessions();
+  return true;
+}
+
+function getItemDataById(itemId) {
+  const item = state.canvasItems.find(i => i.itemId === itemId);
+  if (!item) return null;
+  // 从原型数据中提取完整拷贝（避免引用）
+  const source = findItemSource(itemId);
+  if (source) {
+    if (source.type === 'dropped') {
+      return {
+        type: 'image',
+        imageUrl: source.data.imageUrl,
+        prompt: '',
+        refImages: [],
+        x: source.data.x,
+        y: source.data.y,
+        width: source.data.width,
+        height: source.data.height,
+        status: 'ok',
+        error: '',
+        generating: false,
+        dropId: source.data.id,
+        messageIndex: -1,
+        canvasSeq: source.data.canvasSeq
+      };
+    } else if (source.type === 'message') {
+      const msg = source.data;
+      return {
+        type: 'image',
+        imageUrl: msg.imageUrl,
+        prompt: msg.prompt,
+        refImages: msg.refImages,
+        x: msg.x,
+        y: msg.y,
+        width: msg.width,
+        height: msg.height,
+        status: msg.status,
+        error: msg.error,
+        generating: false,
+        messageIndex: source.index,
+        canvasSeq: msg.canvasSeq
+      };
+    }
+  }
+  return null;
+}
+
+export async function createStackFromItems(itemIds, x, y) {
+  console.log('[createStackFromItems] 开始创建 stack, itemIds:', itemIds);
+  const session = state.sessions[state.currentSessionId];
+  if (!session || !itemIds.length) {
+    console.error('[createStackFromItems] 无效会话或无选中项');
+    return null;
+  }
+
+  // 从当前 canvasItems 中获取要堆叠的项数据
+  const children = [];
+  const itemsToRemove = [];
+  for (const id of itemIds) {
+    const canvasItem = state.canvasItems.find(i => i.itemId === id);
+    if (!canvasItem) {
+      console.warn('[createStackFromItems] 未找到 canvasItem, id:', id);
+      continue;
+    }
+    // 复制必要字段（避免引用）
+    const child = {
+      imageUrl: canvasItem.imageUrl,
+      prompt: canvasItem.prompt || '',
+      refImages: canvasItem.refImages || [],
+      x: canvasItem.x,
+      y: canvasItem.y,
+      width: canvasItem.width,
+      height: canvasItem.height,
+      status: canvasItem.status || 'ok',
+      error: canvasItem.error || '',
+      generating: false,
+    };
+    children.push(child);
+    itemsToRemove.push(id);
+    console.log('[createStackFromItems] 收集子项:', child.imageUrl?.slice(0, 60));
+  }
+  if (children.length === 0) {
+    console.error('[createStackFromItems] 没有有效的子项');
+    return null;
+  }
+  console.log('[createStackFromItems] 子项数量:', children.length);
+
+  // 从源数据中删除这些项
+  for (const id of itemsToRemove) {
+    const canvasItem = state.canvasItems.find(i => i.itemId === id);
+    if (canvasItem) {
+      if (canvasItem.dropId) {
+        const before = session.droppedImages?.length || 0;
+        session.droppedImages = session.droppedImages.filter(d => d.id !== canvasItem.dropId);
+        console.log(`[createStackFromItems] 从 droppedImages 删除项 ${id}, 原数量 ${before}, 现数量 ${session.droppedImages?.length}`);
+      } else if (canvasItem.messageIndex >= 0) {
+        const idx = canvasItem.messageIndex;
+        const userIdx = idx - 1;
+        console.log(`[createStackFromItems] 从 messages 删除项 ${id}, index=${idx}`);
+        if (userIdx >= 0 && session.messages[userIdx]?.role === 'user') {
+          session.messages.splice(userIdx, 2);
+        } else {
+          session.messages.splice(idx, 1);
+        }
+      } else {
+        console.warn('[createStackFromItems] 未知类型的 canvasItem:', canvasItem);
+      }
+    } else {
+      console.warn('[createStackFromItems] 未找到 canvasItem 用于删除:', id);
+    }
+  }
+
+  // 创建堆叠组
+  const stackId = generateId();
+  const stack = {
+    id: stackId,
+    items: children,
+    x: x ?? 100,
+    y: y ?? 100,
+    width: 300,
+    height: 300
+  };
+  if (!session.stacks) session.stacks = [];
+  session.stacks.push(stack);
+  console.log('[createStackFromItems] 已添加 stack, 当前 stacks 数量:', session.stacks.length);
+  saveSessions();
+
+  // 重建画布
+  console.log('[createStackFromItems] 准备重建画布');
+  await rebuildCanvasFromSession();
+  if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
+  console.log('[createStackFromItems] 完成, stack:', stack);
+  return stack;
+}
+
+export async function addToStack(stackId, itemId) {
+  const session = state.sessions[state.currentSessionId];
+  if (!session) return false;
+
+  const stack = session.stacks?.find(s => s.id === stackId);
+  if (!stack) return false;
+
+  const itemData = getItemDataById(itemId);
+  if (!itemData) return false;
+
+  stack.items.push(itemData);
+  removeItemFromSource(itemId);
+  saveSessions();
+
+  await rebuildCanvasFromSession();
+  if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
+  return true;
+}
+
+export async function removeFromStack(stackId, childIndex) {
+  console.log(`[移出Stack调试] 开始移除 stackId=${stackId}, childIndex=${childIndex}`);
+  const session = state.sessions[state.currentSessionId];
+  if (!session) {
+    console.error('[移出Stack调试] 会话不存在');
+    return false;
+  }
+
+  const stack = session.stacks?.find(s => s.id === stackId);
+  if (!stack) {
+    console.error(`[移出Stack调试] 未找到 stack: ${stackId}`);
+    return false;
+  }
+  if (childIndex < 0 || childIndex >= stack.items.length) {
+    console.error(`[移出Stack调试] 索引无效 childIndex=${childIndex}, stack长度=${stack.items.length}`);
+    return false;
+  }
+
+  const removed = stack.items.splice(childIndex, 1)[0];
+  console.log(`[移出Stack调试] 已移除子项, 剩余子项数量: ${stack.items.length}, 被移除图片: ${removed.imageUrl?.slice(0, 60)}`);
+
+  // 移出的图片作为新的 dropped image 添加到画布
+  if (removed) {
+    const { cx, cy } = getViewportCenter();
+    const newX = cx + (Math.random() * 100 - 50);
+    const newY = cy + (Math.random() * 100 - 50);
+    const dropId = generateId();
+    const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
+    const newDropped = {
+      id: dropId,
+      imageUrl: removed.imageUrl,
+      dataHash: removed.dataHash || '',
+      canvasSeq: seq,
+      x: newX,
+      y: newY,
+      width: 300,
+      height: 300
+    };
+    session.droppedImages = session.droppedImages || [];
+    session.droppedImages.push(newDropped);
+    console.log(`[移出Stack调试] 已添加独立图片到画布, dropId=${dropId}`);
+  }
+
+  // 如果 stack 只剩一个元素，则将其转换为普通图片
+  if (stack.items.length === 1) {
+    const last = stack.items[0];
+    const dropId = generateId();
+    const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
+    const newDropped = {
+      id: dropId,
+      imageUrl: last.imageUrl,
+      dataHash: last.dataHash || '',
+      canvasSeq: seq,
+      x: stack.x,
+      y: stack.y,
+      width: 300,
+      height: 300
+    };
+    session.droppedImages.push(newDropped);
+    session.stacks = session.stacks.filter(s => s.id !== stackId);
+    console.log(`[移出Stack调试] stack只剩一个元素, 已转换为普通图片并删除原stack`);
+  } else if (stack.items.length === 0) {
+    session.stacks = session.stacks.filter(s => s.id !== stackId);
+    console.log(`[移出Stack调试] stack已空, 已删除`);
+  }
+
+  saveSessions();
+  console.log('[移出Stack调试] 准备重建画布');
+  await rebuildCanvasFromSession();
+  if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
+  console.log('[移出Stack调试] 完成 (本次移出1张)');
+  return true;
+}
+
+// --------------------------------------------------------------
+// 初始化
+// --------------------------------------------------------------
 export async function initStore() {
   state.sessions = await loadSessions();
   state.materials = await loadMaterials();
@@ -736,15 +1053,15 @@ export async function initStore() {
   const savedId = await loadActiveId();
   console.log('[初始化] sessions:', Object.keys(state.sessions).length, '个, materials:', state.materials.length, '个, 当前会话ID:', savedId);
 
-  // If savedId exists but not in loaded sessions (e.g., newly created session not yet synced to backend), create it
   if (savedId && !state.sessions[savedId]) {
     state.sessions[savedId] = {
       id: savedId,
       title: '新会话',
       createdAt: Date.now(),
-      _canvasSeq: 0
+      _canvasSeq: 0,
+      stacks: []
     };
-    saveSessions(); // attempt to persist
+    saveSessions();
     console.log('[初始化] 恢复缺失的会话:', savedId);
   }
 
@@ -761,7 +1078,7 @@ export async function initStore() {
       console.log('[初始化] active 缺失，使用最近会话重建画布:', fallbackId);
       await rebuildCanvasFromSession();
     } else {
-      console.log('[初始化] 无已保存会话, currentSessionId:', savedId, 'session存在:', !!state.sessions[savedId]);
+      console.log('[初始化] 无已保存会话');
     }
   }
 
@@ -795,10 +1112,9 @@ export async function initStore() {
   });
 }
 
-// ============================================================
-// Task Queue API
-// ============================================================
-
+// --------------------------------------------------------------
+// 任务队列 API
+// --------------------------------------------------------------
 const STORAGE = () => import.meta.env.VITE_STORAGE_BASE || 'http://127.0.0.1:5001';
 
 export async function submitTask({ prompt, model, provider, refs }) {
