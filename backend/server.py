@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
-import sqlite3, json, os, base64, uuid, time, shutil, threading, urllib.request, urllib.error, re as re_module
+import sqlite3, json, os, base64, uuid, time, shutil, threading, urllib.request, urllib.error, re as re_module, random, socket
 
 app = Flask(__name__)
 CORS(app, resources={r'/api/*': {'origins': '*', 'allow_headers': '*', 'expose_headers': '*'}})
@@ -217,10 +217,18 @@ def serve_image(image_path):
 # Task Queue
 # ============================================================
 
+# Concurrency & reliability configuration
+MAX_CONCURRENT = 2       # Max concurrent generation requests
+MAX_QUEUE_DEPTH = 20     # Max pending tasks before rejecting
+REQUEST_TIMEOUT = 120    # HTTP request timeout in seconds
+MAX_RETRIES = 2          # Retry attempts on transient failures
+RETRY_BASE_DELAY = 5     # Base delay (s) for exponential backoff
+
 _tasks = {}
 _tasks_lock = threading.Lock()
 _task_workers = {}
 _queue_running = True
+_concurrency_sem = threading.Semaphore(MAX_CONCURRENT)
 
 def _init_tasks_table():
     conn = get_db()
@@ -376,92 +384,150 @@ def _extract_image_url(data, base_url):
     return ''
 
 def _execute_task(task_id):
-    """Execute a generation task in a background thread."""
-    with _tasks_lock:
-        if task_id not in _tasks:
-            return
-        task = _tasks[task_id]
-        if task['status'] != 'pending':
-            return
-        task['status'] = 'running'
-        task['updated_at'] = time.time()
-        _save_task(task)
-
-    try:
-        settings = kv_get('settings', {})
-        providers = settings.get('providers', {})
-        provider_name = task['provider']
-        provider = providers.get(provider_name)
-        if not provider:
-            raise Exception(f'供应商 "{provider_name}" 配置未找到')
-
-        base = provider['base_url'].rstrip('/')
-        key = provider.get('api_key', '')
-
-        # Build content — include ref images as data URLs
-        refs = task.get('refs', [])
-        if refs:
-            content = [{'type': 'text', 'text': task['prompt']}]
-            for ref in refs:
-                data_url = ref.get('dataUrl', '')
-                if data_url:
-                    content.append({
-                        'type': 'image_url',
-                        'image_url': {'url': data_url}
-                    })
-        else:
-            content = task['prompt']
-
-        body = {
-            'model': task['model'],
-            'messages': [{'role': 'user', 'content': content}]
-        }
-
-        encoded = json.dumps(body).encode('utf-8')
-        req = urllib.request.Request(
-            f'{base}/v1/chat/completions',
-            data=encoded,
-            headers={
-                'Content-Type': 'application/json',
-                'Authorization': f'Bearer {key}'
-            },
-            method='POST'
-        )
-
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            resp_data = json.loads(resp.read().decode('utf-8'))
-
-        image_url = _store_image_from_response(resp_data, base)
-
+    """Execute a generation task with concurrency limiting, timeout, and retry."""
+    with _concurrency_sem:
+        # Re-check cancellation after acquiring the semaphore (may have waited)
         with _tasks_lock:
             if task_id not in _tasks:
+                _task_workers.pop(task_id, None)
                 return
             task = _tasks[task_id]
             if task['status'] == 'cancelled':
+                _task_workers.pop(task_id, None)
                 return
-            task['status'] = 'completed'
-            task['image_url'] = image_url or ''
+            if task['status'] != 'pending':
+                _task_workers.pop(task_id, None)
+                return
+            task['status'] = 'running'
             task['updated_at'] = time.time()
             _save_task(task)
 
-    except urllib.error.HTTPError as e:
-        err_body = e.read().decode('utf-8', errors='replace')[:500]
-        with _tasks_lock:
-            if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
-                t = _tasks[task_id]
-                t['status'] = 'failed'
-                t['error'] = f'HTTP {e.code}: {err_body}'
-                t['updated_at'] = time.time()
-                _save_task(t)
-    except Exception as e:
-        with _tasks_lock:
-            if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
-                t = _tasks[task_id]
-                t['status'] = 'failed'
-                t['error'] = str(e)[:500]
-                t['updated_at'] = time.time()
-                _save_task(t)
-    finally:
+        last_error = None
+
+        for attempt in range(1 + MAX_RETRIES):
+            try:
+                settings = kv_get('settings', {})
+                providers = settings.get('providers', {})
+                provider_name = task['provider']
+                provider = providers.get(provider_name)
+                if not provider:
+                    raise Exception(f'供应商 "{provider_name}" 配置未找到')
+
+                base = provider['base_url'].rstrip('/')
+                key = provider.get('api_key', '')
+
+                refs = task.get('refs', [])
+                if refs:
+                    content = [{'type': 'text', 'text': task['prompt']}]
+                    for ref in refs:
+                        data_url = ref.get('dataUrl', '')
+                        if data_url:
+                            content.append({
+                                'type': 'image_url',
+                                'image_url': {'url': data_url}
+                            })
+                else:
+                    content = task['prompt']
+
+                body = {
+                    'model': task['model'],
+                    'messages': [{'role': 'user', 'content': content}]
+                }
+
+                encoded = json.dumps(body).encode('utf-8')
+                req = urllib.request.Request(
+                    f'{base}/v1/chat/completions',
+                    data=encoded,
+                    headers={
+                        'Content-Type': 'application/json',
+                        'Authorization': f'Bearer {key}'
+                    },
+                    method='POST'
+                )
+
+                with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                    resp_data = json.loads(resp.read().decode('utf-8'))
+
+                image_url = _store_image_from_response(resp_data, base)
+
+                with _tasks_lock:
+                    if task_id not in _tasks:
+                        return
+                    task = _tasks[task_id]
+                    if task['status'] == 'cancelled':
+                        return
+                    task['status'] = 'completed'
+                    task['image_url'] = image_url or ''
+                    task['updated_at'] = time.time()
+                    _save_task(task)
+                return  # Success
+
+            except urllib.error.HTTPError as e:
+                err_body = e.read().decode('utf-8', errors='replace')[:500]
+                status_code = e.code
+                if status_code >= 500 and attempt < MAX_RETRIES:
+                    last_error = f'HTTP {status_code}: {err_body}'
+                    delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
+                    print(f'[重试] 任务 {task_id} HTTP {status_code}，'
+                          f'第 {attempt + 1}/{MAX_RETRIES} 次，{delay:.0f}s 后重试')
+                    time.sleep(delay)
+                    continue
+                with _tasks_lock:
+                    if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                        t = _tasks[task_id]
+                        t['status'] = 'failed'
+                        t['error'] = f'HTTP {status_code}: {err_body}'
+                        t['updated_at'] = time.time()
+                        _save_task(t)
+                return
+
+            except (urllib.error.URLError, socket.timeout, OSError) as e:
+                err_msg = str(e.reason)[:200] if hasattr(e, 'reason') else str(e)[:200]
+                if attempt < MAX_RETRIES:
+                    last_error = err_msg
+                    delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
+                    print(f'[重试] 任务 {task_id} 网络错误: {err_msg}，'
+                          f'第 {attempt + 1}/{MAX_RETRIES} 次，{delay:.0f}s 后重试')
+                    time.sleep(delay)
+                    continue
+                with _tasks_lock:
+                    if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                        t = _tasks[task_id]
+                        t['status'] = 'failed'
+                        t['error'] = f'连接失败: {err_msg}'
+                        t['updated_at'] = time.time()
+                        _save_task(t)
+                return
+
+            except Exception as e:
+                err_msg = str(e)[:200]
+                if attempt < MAX_RETRIES:
+                    last_error = err_msg
+                    delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
+                    print(f'[重试] 任务 {task_id} 错误: {err_msg}，'
+                          f'第 {attempt + 1}/{MAX_RETRIES} 次，{delay:.0f}s 后重试')
+                    time.sleep(delay)
+                    continue
+                with _tasks_lock:
+                    if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                        t = _tasks[task_id]
+                        t['status'] = 'failed'
+                        t['error'] = str(e)[:500]
+                        t['updated_at'] = time.time()
+                        _save_task(t)
+                return
+
+        # All retries exhausted
+        if last_error:
+            with _tasks_lock:
+                if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                    t = _tasks[task_id]
+                    if t['status'] != 'failed':
+                        t['status'] = 'failed'
+                        t['error'] = f'重试耗尽: {last_error[:480]}'
+                        t['updated_at'] = time.time()
+                        _save_task(t)
+
         _task_workers.pop(task_id, None)
 
 def _cleanup_old_tasks():
@@ -562,6 +628,11 @@ def create_task():
     prompt = (data.get('prompt') or '').strip()
     if not prompt:
         return jsonify({'error': 'prompt is required'}), 400
+
+    with _tasks_lock:
+        pending_count = sum(1 for t in _tasks.values() if t['status'] == 'pending')
+        if pending_count >= MAX_QUEUE_DEPTH:
+            return jsonify({'error': f'任务队列已满（{MAX_QUEUE_DEPTH}），请等待当前任务完成后重试'}), 503
 
     task_id = 'task-' + uuid.uuid4().hex
     now = time.time()

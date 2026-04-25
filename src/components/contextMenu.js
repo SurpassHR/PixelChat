@@ -1,6 +1,7 @@
-import { getState, setState, addMaterial, removeCanvasItemById, removeMaterial } from '../store.js';
+import { getState, setState, addMaterial, addDroppedImage, removeCanvasItemById, removeMaterial } from '../store.js';
 import { $, $$ } from '../domHelpers.js';
 import { openPromptHistory } from './modal.js';
+import { showToast } from '../toast.js';
 
 const menu = $('#contextMenu');
 let currentContext = null;
@@ -36,6 +37,50 @@ function hideMenu() {
 
 async function handleAction(action) {
   switch (action) {
+    case 'copyImage': {
+      const { canvasItems } = getState();
+      const item = canvasItems.find(i => i.itemId === currentData?.itemId);
+      if (item && item.imageUrl) {
+        try {
+          const blob = await fetch(item.imageUrl).then(r => r.blob());
+          await navigator.clipboard.write([
+            new ClipboardItem({ [blob.type]: blob })
+          ]);
+          showToast('图片已复制到剪贴板', 'success');
+        } catch (err) {
+          showToast('复制失败: ' + err.message, 'error');
+        }
+      }
+      break;
+    }
+    case 'pasteImage': {
+      try {
+        const items = await navigator.clipboard.read();
+        let pasted = 0;
+        for (const clipItem of items) {
+          const imgType = clipItem.types.find(t => t.startsWith('image/'));
+          if (imgType) {
+            const blob = await clipItem.getType(imgType);
+            const dataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+            await addDroppedImage(dataUrl);
+            pasted++;
+          }
+        }
+        if (pasted > 0) {
+          setState({ statusText: `已粘贴 ${pasted} 张图片` });
+        } else {
+          showToast('剪贴板中没有图片', 'error');
+        }
+      } catch (err) {
+        showToast('无法读取剪贴板: ' + err.message, 'error');
+      }
+      break;
+    }
     case 'addMaterial': {
       const { canvasItems } = getState();
       const item = canvasItems.find(i => i.itemId === currentData?.itemId);

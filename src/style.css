@@ -422,6 +422,16 @@ body {
 .canvas-item:hover .item-label { opacity: 1; }
 .canvas-item.selected .item-label { opacity: 1; }
 
+/* Rubber band selection */
+.rubber-band {
+  position: fixed;
+  z-index: 9999;
+  background: rgba(138, 180, 248, 0.08);
+  border: 1px solid var(--accent-dim);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
 /* Generating shimmer animation */
 .canvas-item.generating {
   display: flex;

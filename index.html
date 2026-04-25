@@ -113,6 +113,8 @@
 
   <!-- Global Context Menu -->
   <div class="context-menu" id="contextMenu">
+    <div class="menu-item hidden" data-ctx="canvas-image" data-action="copyImage">复制图片</div>
+    <div class="menu-divider hidden" data-ctx="canvas-image"></div>
     <div class="menu-item hidden" data-ctx="canvas-image" data-action="addMaterial">添加到素材库</div>
     <div class="menu-item hidden" data-ctx="canvas-image" data-action="copyPrompt">复制提示词</div>
     <div class="menu-item hidden" data-ctx="canvas-image" data-action="download">下载图片</div>
@@ -124,6 +126,8 @@
     <div class="menu-divider hidden" data-ctx="material"></div>
     <div class="menu-item hidden" data-ctx="material" data-action="removeMaterial">从素材库删除</div>
 
+    <div class="menu-item hidden" data-ctx="canvas-empty" data-action="pasteImage">粘贴</div>
+    <div class="menu-divider hidden" data-ctx="canvas-empty"></div>
     <div class="menu-item hidden" data-ctx="canvas-empty" data-action="promptHistory">提示词历史</div>
     <div class="menu-item hidden" data-ctx="canvas-empty" data-action="clearCanvas">清空画板</div>
   </div>

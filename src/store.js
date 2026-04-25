@@ -4,7 +4,7 @@ const state = {
   sessions: {},
   currentSessionId: '',
   canvasItems: [],
-  selectedItemId: null,
+  selectedItemIds: [],
   refImages: [],
   reusePrompt: false,
   reuseRef: false,
@@ -315,12 +315,12 @@ export async function switchSession(id) {
   state.currentSessionId = id;
   saveActiveId(id);
   await rebuildCanvasFromSession();
-  state.selectedItemId = null;
+  state.selectedItemIds = [];
   state.viewport = { panX: 0, panY: 0, zoom: 1 };
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
   if (listeners['currentSessionId']) listeners['currentSessionId'].forEach(fn => fn());
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
-  if (listeners['selectedItemId']) listeners['selectedItemId'].forEach(fn => fn());
+  if (listeners['selectedItemIds']) listeners['selectedItemIds'].forEach(fn => fn());
   if (listeners['viewport']) listeners['viewport'].forEach(fn => fn());
 }
 
