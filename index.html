@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片生成</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <div class="sidebar">
+    <div class="history-section">
+      <div class="history-header">
+        <h2>聊天记录</h2>
+        <button class="new-session-btn" id="newSessionBtn" title="新建会话">+</button>
+      </div>
+      <div class="history-list" id="sessionList"></div>
+    </div>
+
+    <div class="material-section">
+      <div class="material-header">
+        <h2>素材库</h2>
+        <button class="new-session-btn" id="addMaterialBtn" title="添加素材">+</button>
+        <input type="file" id="materialFileInput" accept="image/*" multiple style="display:none">
+      </div>
+      <div class="material-list" id="materialList"></div>
+    </div>
+
+    <div class="settings-section">
+      <h2>设置</h2>
+
+      <div class="setting-group">
+        <label>API 地址</label>
+        <input type="text" id="apiBase" value="http://127.0.0.1:8000">
+      </div>
+
+      <div class="setting-group">
+        <label>API Key</label>
+        <input type="text" id="apiKey" value="sk-000530">
+      </div>
+
+      <div class="setting-group">
+        <label>存储后端</label>
+        <input type="text" id="storageBase" value="http://127.0.0.1:5001" placeholder="留空使用本地存储">
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="header">
+      <div class="header-left">
+        <h1>图片生成</h1>
+        <div class="model-selector" id="modelSelector" title="点击切换模型">
+          <span class="model-selector-current" id="currentModelDisplay">加载中...</span>
+          <span class="model-selector-arrow">▾</span>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span class="canvas-info" id="canvasInfo"></span>
+        <div class="status">
+          <span class="status-dot"></span>
+          <span id="statusText">就绪</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="canvas-container" id="canvasContainer">
+      <div class="canvas-placeholder" id="canvasPlaceholder">
+        <div class="icon">🖼️</div>
+        <div>输入提示词，点击生成按钮</div>
+        <div style="font-size:12px;margin-top:4px;">点击图片查看详情 · 右键菜单 · 拖拽图片到输入区作为参考图</div>
+      </div>
+      <div class="canvas-surface" id="canvasSurface"></div>
+    </div>
+
+    <div class="prompt-area" id="promptArea">
+      <div class="attachments" id="attachments"></div>
+      <div class="prompt-row">
+        <textarea id="promptInput" rows="2" placeholder="输入提示词描述你想要生成的图片..."></textarea>
+        <button class="reuse-toggle" id="reuseToggle" title="复用提示词（发送后不清理输入框）">📌</button>
+        <button class="reuse-toggle" id="reuseRefToggle" title="复用参考图（发送后不清除参考图）">🖼️</button>
+        <button class="generate-btn" id="generateBtn">生成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Context Menu -->
+  <div class="context-menu" id="contextMenu">
+    <div class="menu-item hidden" data-ctx="canvas-image" data-action="addMaterial">添加到素材库</div>
+    <div class="menu-item hidden" data-ctx="canvas-image" data-action="copyPrompt">复制提示词</div>
+    <div class="menu-item hidden" data-ctx="canvas-image" data-action="download">下载图片</div>
+    <div class="menu-divider hidden" data-ctx="canvas-image"></div>
+    <div class="menu-item hidden" data-ctx="canvas-image" data-action="deleteImage">删除</div>
+
+    <div class="menu-item hidden" data-ctx="material" data-action="addRef">作为参考图</div>
+    <div class="menu-item hidden" data-ctx="material" data-action="downloadMat">下载图片</div>
+    <div class="menu-divider hidden" data-ctx="material"></div>
+    <div class="menu-item hidden" data-ctx="material" data-action="removeMaterial">从素材库删除</div>
+
+    <div class="menu-item hidden" data-ctx="canvas-empty" data-action="promptHistory">提示词历史</div>
+    <div class="menu-item hidden" data-ctx="canvas-empty" data-action="clearCanvas">清空画板</div>
+  </div>
+
+  <!-- Image Detail Modal -->
+  <div class="modal-overlay" id="modalOverlay" style="display:none">
+    <div class="modal-content modal-detail" id="modalContent">
+      <div class="modal-header">
+        <h3 id="modalTitle">图片详情</h3>
+        <button class="modal-close" id="modalCloseBtn">×</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <div class="detail-image-container">
+          <img id="detailImage" src="" alt="生成图片">
+        </div>
+        <div class="detail-info" id="detailInfo">
+          <div class="detail-section" id="detailPromptSection">
+            <div class="detail-label">提示词</div>
+            <div class="detail-text" id="detailPrompt"></div>
+          </div>
+          <div class="detail-section" id="detailRefsSection" style="display:none">
+            <div class="detail-label">参考图</div>
+            <div class="detail-refs" id="detailRefs"></div>
+          </div>
+        </div>
+        <div class="detail-actions">
+          <button class="detail-btn" id="detailDownloadBtn">⬇ 下载图片</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Prompt History Modal -->
+  <div class="modal-overlay" id="historyModalOverlay" style="display:none">
+    <div class="modal-content" id="historyModalContent">
+      <div class="modal-header">
+        <h3>提示词历史</h3>
+        <button class="modal-close" id="historyModalCloseBtn">×</button>
+      </div>
+      <div class="modal-body" id="historyModalBody"></div>
+    </div>
+  </div>
+
+  <!-- Model Selection Modal -->
+  <div class="modal-overlay" id="modelSelectOverlay" style="display:none">
+    <div class="modal-content modal-model-select">
+      <div class="modal-header">
+        <h3>选择模型</h3>
+        <button class="modal-close" id="modelSelectCloseBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="text" class="model-filter" id="modelFilter" placeholder="输入关键词筛选模型...">
+        <div class="model-list" id="modelList"></div>
+        <button class="refresh-models-btn" id="refreshModelsBtn">刷新模型列表</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
