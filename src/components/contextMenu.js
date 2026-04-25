@@ -34,13 +34,13 @@ function hideMenu() {
   currentData = null;
 }
 
-function handleAction(action) {
+async function handleAction(action) {
   switch (action) {
     case 'addMaterial': {
       const { canvasItems } = getState();
       const item = canvasItems.find(i => i.itemId === currentData?.itemId);
       if (item && item.imageUrl) {
-        addMaterial('画布图片', item.imageUrl);
+        await addMaterial('画布图片', item.imageUrl);
       }
       break;
     }
@@ -74,7 +74,21 @@ function handleAction(action) {
       const mat = materials.find(m => m.id === currentData?.materialId);
       if (mat) {
         const refs = getState().refImages;
-        refs.push({ name: mat.name, dataUrl: mat.dataUrl });
+        let dataUrl = mat.dataUrl;
+        // Convert blob URLs to data URLs for API compatibility
+        if (dataUrl && dataUrl.startsWith('blob:')) {
+          try {
+            const res = await fetch(dataUrl);
+            const blob = await res.blob();
+            dataUrl = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result);
+              reader.onerror = reject;
+              reader.readAsDataURL(blob);
+            });
+          } catch {}
+        }
+        refs.push({ name: mat.name, dataUrl });
         setState({ refImages: [...refs] });
       }
       break;

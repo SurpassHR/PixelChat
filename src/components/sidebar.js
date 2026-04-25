@@ -38,19 +38,21 @@ function renderSessionList() {
 
 export function initSidebar() {
   // Session list delegation
-  $('#sessionList').addEventListener('click', e => {
+  $('#sessionList').addEventListener('click', async e => {
     const delBtn = e.target.closest('.delete-session');
     if (delBtn) {
       e.stopPropagation();
-      deleteSession(delBtn.dataset.sid);
+      await deleteSession(delBtn.dataset.sid);
       return;
     }
     const item = e.target.closest('.session-item');
-    if (item) switchSession(item.dataset.sid);
+    if (item) await switchSession(item.dataset.sid);
   });
 
   // New session button
-  $('#newSessionBtn').addEventListener('click', createSession);
+  $('#newSessionBtn').addEventListener('click', async () => {
+    await createSession();
+  });
 
   // Subscribe to store changes
   subscribe('sessions', renderSessionList);

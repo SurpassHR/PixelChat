@@ -1,14 +1,14 @@
-import { getState } from '../store.js';
+import { getState, resolveIdbUrl } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
 
 const overlay = $('#modalOverlay');
 const historyOverlay = $('#historyModalOverlay');
 
-export function openImageDetail(item) {
+export async function openImageDetail(item) {
   if (!item) return;
 
   $('#modalTitle').textContent = '图片详情';
-  $('#detailImage').src = item.imageUrl;
+  $('#detailImage').src = await resolveIdbUrl(item.imageUrl);
   $('#detailImage').alt = '生成图片';
 
   // Prompt section
@@ -26,9 +26,11 @@ export function openImageDetail(item) {
   const detailRefs = $('#detailRefs');
   if (item.refImages && item.refImages.length > 0) {
     refsSection.style.display = '';
-    detailRefs.innerHTML = item.refImages
-      .map(img => `<img src="${img.dataUrl}" alt="${escapeHtml(img.name)}" title="${escapeHtml(img.name)}">`)
-      .join('');
+    const refHtml = await Promise.all(item.refImages.map(async img => {
+      const src = await resolveIdbUrl(img.dataUrl);
+      return `<img src="${src}" alt="${escapeHtml(img.name)}" title="${escapeHtml(img.name)}">`;
+    }));
+    detailRefs.innerHTML = refHtml.join('');
   } else {
     refsSection.style.display = 'none';
   }
@@ -40,7 +42,7 @@ export function closeModal() {
   overlay.style.display = 'none';
 }
 
-export function openPromptHistory() {
+export async function openPromptHistory() {
   const { sessions, currentSessionId } = getState();
   const session = sessions[currentSessionId];
   const body = $('#historyModalBody');
@@ -48,44 +50,33 @@ export function openPromptHistory() {
   if (!session || !session.messages || session.messages.length === 0) {
     body.innerHTML = '<div style="color:var(--text2);padding:12px;text-align:center;">暂无提示词历史</div>';
   } else {
-    let html = '';
-    let lastUserMsg = null;
-    let lastResultImg = null;
+    const htmlParts = [];
 
-    session.messages.forEach(msg => {
+    for (const msg of session.messages) {
       if (msg.role === 'user') {
-        lastUserMsg = msg;
-        lastResultImg = null;
         const time = new Date(msg.timestamp || session.updatedAt || session.createdAt);
         const timeStr = time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        html += `<div class="prompt-history-item">
+        let part = `<div class="prompt-history-item">
           <div class="ph-time">${timeStr}</div>
           <div class="ph-prompt">${escapeHtml(msg.prompt)}</div>`;
         if (msg.refImages && msg.refImages.length > 0) {
-          html += `<div class="ph-refs">${msg.refImages
-            .map(img => `<img src="${img.dataUrl}" alt="${escapeHtml(img.name)}">`)
-            .join('')}</div>`;
+          const refHtml = await Promise.all(msg.refImages.map(async img => {
+            const src = await resolveIdbUrl(img.dataUrl);
+            return `<img src="${src}" alt="${escapeHtml(img.name)}">`;
+          }));
+          part += `<div class="ph-refs">${refHtml.join('')}</div>`;
         }
-        html += `</div>`;
-      } else if (msg.role === 'assistant' && msg.status === 'ok') {
-        lastResultImg = msg.imageUrl;
-        // Append result thumbnail to the last history item
-        // We need to add it to the last entry
-        if (lastUserMsg) {
-          // Find the last entry and add result
-          const lastEntry = body.querySelector('.prompt-history-item:last-child .ph-result');
-          // Since we're building HTML string, we'll handle this differently
-        }
+        part += `</div>`;
+        htmlParts.push(part);
       }
-    });
+    }
 
-    body.innerHTML = html;
+    body.innerHTML = htmlParts.join('');
 
     // Now add result thumbnails by matching prompts
     let userIndex = 0;
     session.messages.forEach(msg => {
       if (msg.role === 'user') {
-        // Find next assistant message
         const msgIndex = session.messages.indexOf(msg);
         const nextMsg = session.messages[msgIndex + 1];
         if (nextMsg && nextMsg.role === 'assistant' && nextMsg.status === 'ok') {
@@ -93,7 +84,9 @@ export function openPromptHistory() {
           if (items[userIndex]) {
             const resultDiv = document.createElement('div');
             resultDiv.className = 'ph-result';
-            resultDiv.innerHTML = `<img src="${nextMsg.imageUrl}" alt="结果">`;
+            resolveIdbUrl(nextMsg.imageUrl).then(src => {
+              resultDiv.innerHTML = `<img src="${src}" alt="结果">`;
+            });
             items[userIndex].appendChild(resultDiv);
           }
         }

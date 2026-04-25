@@ -56,7 +56,7 @@ async function generate() {
   if (placeholderId) registerAbort(placeholderId, controller);
 
   // Store user message
-  appendMessage({ role: 'user', prompt, refImages: turnRefs });
+  await appendMessage({ role: 'user', prompt, refImages: turnRefs });
 
   // Clear input
   if (!reusePrompt) {
@@ -76,7 +76,7 @@ async function generate() {
     });
 
     if (imageUrl) {
-      addResultToCanvas({
+      await addResultToCanvas({
         status: 'ok',
         imageUrl,
         prompt,
@@ -88,7 +88,7 @@ async function generate() {
       const errMsg = '响应中未找到图片URL';
       console.error('[生成失败]', errMsg);
       showToast(errMsg, 'error');
-      addResultToCanvas({
+      await addResultToCanvas({
         status: 'error',
         error: errMsg,
         prompt,
@@ -104,7 +104,7 @@ async function generate() {
     }
     console.error('[生成失败]', e.message);
     showToast(e.message, 'error');
-    addResultToCanvas({
+    await addResultToCanvas({
       status: 'error',
       error: e.message,
       prompt,
@@ -170,10 +170,10 @@ export function initPromptArea() {
         const file = item.getAsFile();
         const name = file.name || '粘贴图片 ' + new Date().toLocaleTimeString();
         const reader = new FileReader();
-        reader.onload = ev => {
+        reader.onload = async ev => {
           const dataUrl = ev.target.result;
-          addDroppedImage(dataUrl);
-          addMaterial(name, dataUrl);
+          await addDroppedImage(dataUrl);
+          await addMaterial(name, dataUrl);
           setState({ statusText: `已添加图片到画布和素材库` });
         };
         reader.readAsDataURL(file);
@@ -192,7 +192,7 @@ export function initPromptArea() {
       promptArea.classList.remove('drag-over');
     }
   });
-  promptArea.addEventListener('drop', e => {
+  promptArea.addEventListener('drop', async e => {
     e.preventDefault();
     promptArea.classList.remove('drag-over');
     const data = e.dataTransfer.getData('text/plain') ||
@@ -201,7 +201,21 @@ export function initPromptArea() {
       try {
         const parsed = JSON.parse(data);
         if (parsed.dataUrl) {
-          addRefImage(parsed.name || '参考图', parsed.dataUrl);
+          let finalUrl = parsed.dataUrl;
+          // Blob URLs can't be sent to external APIs; convert to data URL
+          if (finalUrl.startsWith('blob:')) {
+            try {
+              const res = await fetch(finalUrl);
+              const blob = await res.blob();
+              finalUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              });
+            } catch {}
+          }
+          addRefImage(parsed.name || '参考图', finalUrl);
         }
       } catch {
         // Try as URL

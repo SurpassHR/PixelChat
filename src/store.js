@@ -1,12 +1,5 @@
 import { generateId } from './domHelpers.js';
 
-const STORAGE_SESSIONS = 'image-gen-sessions';
-const STORAGE_ACTIVE = 'image-gen-active';
-const STORAGE_MATERIALS = 'image-gen-materials';
-const STORAGE_MODEL = 'image-gen-model';
-const STORAGE_REUSE_PROMPT = 'image-gen-reusePrompt';
-const STORAGE_REUSE_REF = 'image-gen-reuseRef';
-
 const state = {
   sessions: {},
   currentSessionId: '',
@@ -22,6 +15,32 @@ const state = {
   statusText: '就绪',
   generating: false
 };
+
+function sanitizeForSave(obj) {
+  if (typeof obj !== 'object' || obj === null) return obj;
+  const clone = Array.isArray(obj) ? [] : {};
+  for (const key of Object.keys(obj)) {
+    const value = obj[key];
+    if (typeof value === 'string' && value.startsWith('blob:')) {
+      continue;
+    }
+    clone[key] = typeof value === 'object' && value !== null ? sanitizeForSave(value) : value;
+  }
+  return clone;
+}
+
+function resolveBackendUrl(url) {
+  if (!url || typeof url !== 'string' || url.startsWith('data:') || url.startsWith('blob:')) return url;
+  if (/^https?:\/\//i.test(url)) return sanitizeImageUrl(url);
+  if (url.startsWith('/')) return getStorageBase() + sanitizeImageUrl(url);
+  return url;
+}
+
+export async function resolveIdbUrl(url) {
+  return resolveBackendUrl(url);
+}
+
+function _cleanupResolvedUrls() {}
 
 const listeners = {};
 const _abortControllers = {};
@@ -49,15 +68,8 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
-  // Persist selected model
-  if ('selectedModelId' in partial) {
-    localStorage.setItem(STORAGE_MODEL, partial.selectedModelId);
-  }
-  if ('reusePrompt' in partial) {
-    localStorage.setItem(STORAGE_REUSE_PROMPT, partial.reusePrompt ? '1' : '0');
-  }
-  if ('reuseRef' in partial) {
-    localStorage.setItem(STORAGE_REUSE_REF, partial.reuseRef ? '1' : '0');
+  if ('selectedModelId' in partial || 'reusePrompt' in partial || 'reuseRef' in partial) {
+    saveSettings();
   }
   for (const key of Object.keys(partial)) {
     if (listeners[key]) listeners[key].forEach(fn => fn());
@@ -71,15 +83,34 @@ function getStorageBase() {
   return el ? el.value.replace(/\/+$/, '') : '';
 }
 
+function saveSettings() {
+  debouncedBackendSync();
+}
+
+async function loadSettings() {
+  try {
+    return await apiGet('/api/settings') || {};
+  } catch (e) {
+    console.log('[加载] 后端 settings 不可用:', e.message);
+    return {};
+  }
+}
+
 let _pendingSave = null;
 
-// Debounced backend sync (avoids duplicate save calls)
 function debouncedBackendSync() {
   if (_pendingSave) return;
   _pendingSave = setTimeout(async () => {
     _pendingSave = null;
-    try { await apiPost('/api/sessions', state.sessions); } catch {}
-    try { await apiPost('/api/materials', state.materials); } catch {}
+    try { await apiPost('/api/sessions', sanitizeForSave(state.sessions)); } catch {}
+    try { await apiPost('/api/materials', sanitizeForSave(state.materials)); } catch {}
+    try {
+      await apiPost('/api/settings', {
+        selectedModelId: state.selectedModelId,
+        reusePrompt: state.reusePrompt,
+        reuseRef: state.reuseRef
+      });
+    } catch {}
   }, 200);
 }
 
@@ -89,7 +120,13 @@ async function apiGet(path) {
   if (!base) throw new Error('no backend');
   const res = await fetch(base + path);
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  return res.json();
+  const text = await res.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 async function apiPost(path, data) {
@@ -110,81 +147,47 @@ function beaconPost(path, data) {
   navigator.sendBeacon(base + path, JSON.stringify(data));
 }
 
-// Upload a data URL to the backend and return a URL
+// Strip .ext from backend image API URLs (legacy cleanup)
+function sanitizeImageUrl(url) {
+  return url ? url.replace(/\/api\/images\/[a-f0-9]+\.\w+/g, m => m.replace(/\.\w+$/, '')) : url;
+}
+
 async function ensureImageUrl(dataUrl) {
-  if (!dataUrl || !dataUrl.startsWith('data:')) return dataUrl;
-  try {
-    const base = getStorageBase();
-    const ext = dataUrl.split(';')[0].split('/')[1] || 'png';
-    const hash = await computeDataUrlHash(dataUrl);
-    const { url } = await apiPost('/api/images', { data: dataUrl, ext, hash });
-    return base + url;
-  } catch { return dataUrl; /* fallback to data URL */ }
+  if (!dataUrl || !dataUrl.startsWith('data:')) return resolveBackendUrl(dataUrl);
+
+  const hash = await computeDataUrlHash(dataUrl);
+  const ext = dataUrl.split(';')[0].split('/')[1] || 'png';
+  const { url } = await apiPost('/api/images', { data: dataUrl, ext, hash });
+  return getStorageBase() + url;
 }
 
-// Upload image in the background and update the item's URL
 function uploadItemImage(item) {
-  if (!item || !item.imageUrl || !item.imageUrl.startsWith('data:')) return;
-  ensureImageUrl(item.imageUrl).then(url => {
-    if (url !== item.imageUrl) {
-      item.imageUrl = url;
-      if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
-      saveSessions();
-    }
-  });
-}
+  if (!item) return;
+  const url = item.imageUrl;
 
-// --- Session persistence ---
+  if (url && url.startsWith('data:')) {
+    ensureImageUrl(url).then(newUrl => {
+      if (newUrl !== url) {
+        item.imageUrl = newUrl;
+        if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
+        saveSessions();
+      }
+    }).catch(() => {});
+  }
+}
 
 async function loadSessions() {
-  let backend = null;
-  let local = null;
-
   try {
     const remote = await apiGet('/api/sessions');
-    if (remote && Object.keys(remote).length > 0) backend = remote;
-  } catch (e) { console.log('[加载] 后端 sessions 不可用:', e.message); }
-
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_SESSIONS));
-    if (parsed && Object.keys(parsed).length > 0) local = parsed;
-  } catch (e) { console.log('[加载] localStorage sessions 不可用:', e.message); }
-
-  console.log('[加载] sessions 来源:', {
-    backend: backend ? `有 ${Object.keys(backend).length} 个会话, ids: ${Object.keys(backend).join(',')}` : '无',
-    local: local ? `有 ${Object.keys(local).length} 个会话, ids: ${Object.keys(local).join(',')}` : '无'
-  });
-
-  if (!backend && !local) { console.log('[加载] sessions 无任何来源, 返回 {}'); return {}; }
-  if (!backend) { console.log('[加载] sessions 只用 localStorage'); return local; }
-  if (!local) { console.log('[加载] sessions 只用后端'); return backend; }
-
-  // Merge per-session: prefer whichever has newer updatedAt.
-  // This ensures that if pagehide sendBeacon failed (payload too large),
-  // the fresher localStorage data isn't discarded for stale backend data.
-  const merged = { ...backend };
-  for (const [id, session] of Object.entries(local)) {
-    const existing = merged[id];
-    if (!existing || (session.updatedAt || 0) > (existing.updatedAt || 0)) {
-      merged[id] = session;
-      console.log(`[加载] 会话 ${id} 使用 localStorage 版本 (updatedAt=${session.updatedAt})`);
-    } else {
-      console.log(`[加载] 会话 ${id} 使用后端版本 (updatedAt=${existing.updatedAt})`);
+    if (remote && Object.keys(remote).length > 0) {
+      console.log('[加载] sessions 从后端加载:', Object.keys(remote).length, '个');
+      return remote;
     }
-  }
-  // Log any backend-only sessions
-  for (const id of Object.keys(backend)) {
-    if (!local[id]) console.log(`[加载] 会话 ${id} 仅在后端存在`);
-  }
-  console.log(`[加载] sessions 合并后共 ${Object.keys(merged).length} 个会话`);
-  return merged;
+  } catch (e) { console.log('[加载] 后端 sessions 不可用:', e.message); }
+  return {};
 }
 
 function saveSessions() {
-  // Sync to localStorage (best effort — may fail on large data)
-  try { localStorage.setItem(STORAGE_SESSIONS, JSON.stringify(state.sessions)); }
-  catch { /* quota exceeded, rely on backend */ }
-  // Debounced async backend sync
   debouncedBackendSync();
 }
 
@@ -192,18 +195,17 @@ async function loadActiveId() {
   try {
     const val = await apiGet('/api/active');
     if (val) return val;
-  } catch { /* backend unavailable */ }
-  return localStorage.getItem(STORAGE_ACTIVE) || '';
+  } catch (e) { console.log('[加载] 后端 active 不可用:', e.message); }
+  return '';
 }
 
 function saveActiveId(id) {
-  localStorage.setItem(STORAGE_ACTIVE, id);
   beaconPost('/api/active', { id });
 }
 
 // --- Session management ---
 
-export function createSession() {
+export async function createSession() {
   const id = generateId();
   state.sessions[id] = {
     id,
@@ -212,28 +214,29 @@ export function createSession() {
     _canvasSeq: 0
   };
   saveSessions();
-  switchSession(id);
+  await switchSession(id);
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
 }
 
-export function deleteSession(id) {
+export async function deleteSession(id) {
   delete state.sessions[id];
   saveSessions();
   if (state.currentSessionId === id) {
     const ids = Object.keys(state.sessions);
     if (ids.length > 0) {
-      switchSession(ids[ids.length - 1]);
+      await switchSession(ids[ids.length - 1]);
     } else {
-      createSession();
+      await createSession();
     }
   }
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
 }
 
-export function switchSession(id) {
+export async function switchSession(id) {
+  _cleanupResolvedUrls();
   state.currentSessionId = id;
   saveActiveId(id);
-  rebuildCanvasFromSession();
+  await rebuildCanvasFromSession();
   state.selectedItemId = null;
   state.viewport = { panX: 0, panY: 0, zoom: 1 };
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
@@ -371,11 +374,12 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
   msg.height = item.height;
 
   saveSessions();
+
+  item.imageUrl = resolveBackendUrl(item.imageUrl);
   state.canvasItems.push(item);
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
 
-  // Upload image to backend in the background
   uploadItemImage(item);
 
   return item;
@@ -389,6 +393,7 @@ export async function addDroppedImage(dataUrl) {
 
   // Upload image data to backend first so session payload stays small
   const savedUrl = await ensureImageUrl(dataUrl);
+  const hash = await computeDataUrlHash(dataUrl);
 
   const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
   session.droppedImages = session.droppedImages || [];
@@ -398,13 +403,15 @@ export async function addDroppedImage(dataUrl) {
   const x = Math.max(0, cx - 150 + offset);
   const y = Math.max(0, cy + offset);
 
-  const img = { id, imageUrl: savedUrl, canvasSeq: seq, x, y, width: 300, height: 300 };
+  const img = { id, imageUrl: savedUrl, dataHash: hash, canvasSeq: seq, x, y, width: 300, height: 300 };
   session.droppedImages.push(img);
   session.updatedAt = Date.now();
   saveSessions();
 
+  const displayUrl = resolveBackendUrl(savedUrl);
+
   const item = {
-    itemId: 'drop-' + id, messageIndex: -1, imageUrl: savedUrl, prompt: '',
+    itemId: 'drop-' + id, messageIndex: -1, imageUrl: displayUrl || savedUrl, prompt: '',
     refImages: [], x, y, width: 300, height: 300,
     generating: false, status: 'ok', error: '', dropId: id
   };
@@ -458,7 +465,7 @@ export function removeCanvasItemById(itemId) {
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
 }
 
-export function rebuildCanvasFromSession() {
+export async function rebuildCanvasFromSession() {
   state.canvasItems = [];
   const session = state.sessions[state.currentSessionId];
   if (!session || !session.messages) {
@@ -487,7 +494,7 @@ export function rebuildCanvasFromSession() {
         items.push({
           itemId: 'item-' + i,
           messageIndex: i,
-          imageUrl: msg.imageUrl,
+          imageUrl: resolveBackendUrl(msg.imageUrl),
           prompt: msg.prompt || (lastUserMsg ? lastUserMsg.prompt : ''),
           refImages: msg.refImages || (lastUserMsg ? lastUserMsg.refImages || [] : []),
           x: msg.x != null ? msg.x : 50,
@@ -519,13 +526,12 @@ export function rebuildCanvasFromSession() {
     }
   });
 
-  // Add dropped external images
   if (session.droppedImages) {
     session.droppedImages.forEach(img => {
       items.push({
         itemId: 'drop-' + img.id,
         messageIndex: -1,
-        imageUrl: img.imageUrl,
+        imageUrl: resolveBackendUrl(img.imageUrl),
         prompt: '',
         refImages: [],
         x: img.x != null ? img.x : 50,
@@ -536,13 +542,13 @@ export function rebuildCanvasFromSession() {
         status: 'ok',
         error: '',
         dropId: img.id,
+        dataHash: img.dataHash,
         canvasSeq: img.canvasSeq
       });
     });
   }
 
-  // Sort by canvasSeq to restore original interleaving order.
-  // If any items lack canvasSeq (old sessions), keep default order (messages then drops).
+  // Sort by canvasSeq
   if (items.length > 0 && items.every(it => it.canvasSeq != null)) {
     items.sort((a, b) => a.canvasSeq - b.canvasSeq);
   }
@@ -561,48 +567,18 @@ async function computeDataUrlHash(dataUrl) {
 }
 
 async function loadMaterials() {
-  let backend = null;
-  let local = null;
-
   try {
     const remote = await apiGet('/api/materials');
-    if (remote && remote.length > 0) backend = remote;
-  } catch (e) { console.log('[加载] 后端 materials 不可用:', e.message); }
-
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_MATERIALS));
-    if (parsed && parsed.length > 0) local = parsed;
-  } catch (e) { console.log('[加载] localStorage materials 不可用:', e.message); }
-
-  console.log('[加载] materials 来源:', {
-    backend: backend ? `${backend.length} 个` : '无',
-    local: local ? `${local.length} 个` : '无'
-  });
-
-  if (!backend && !local) { console.log('[加载] materials 无任何来源'); return []; }
-  if (!backend) return local;
-  if (!local) return backend;
-
-  // Merge: prefer localStorage for matching ids (freshest),
-  // then append backend materials not in local
-  const seen = new Set();
-  const merged = [];
-  for (const m of local) {
-    merged.push(m);
-    seen.add(m.id);
-  }
-  for (const m of backend) {
-    if (!seen.has(m.id)) {
-      merged.push(m);
-      seen.add(m.id);
+    if (remote && remote.length > 0) {
+      remote.forEach(m => { if (m.dataUrl) m.dataUrl = resolveBackendUrl(m.dataUrl); });
+      console.log('[加载] materials 从后端加载:', remote.length, '个');
+      return remote;
     }
-  }
-  return merged;
+  } catch (e) { console.log('[加载] 后端 materials 不可用:', e.message); }
+  return [];
 }
 
 function saveMaterials() {
-  try { localStorage.setItem(STORAGE_MATERIALS, JSON.stringify(state.materials)); }
-  catch { /* quota exceeded */ }
   debouncedBackendSync();
 }
 
@@ -614,10 +590,8 @@ export async function addMaterial(name, dataUrl) {
     return existing;
   }
 
-  // Upload image to backend first so stored data stays small
   const savedUrl = await ensureImageUrl(dataUrl);
-
-  const mat = { id: generateId(), name, dataUrl: savedUrl, dataHash: hash, addedAt: Date.now() };
+  const mat = { id: generateId(), name, dataUrl: resolveBackendUrl(savedUrl), dataHash: hash, addedAt: Date.now() };
   state.materials.push(mat);
   saveMaterials();
   if (listeners['materials']) listeners['materials'].forEach(fn => fn());
@@ -635,29 +609,53 @@ export function removeMaterial(id) {
 export async function initStore() {
   state.sessions = await loadSessions();
   state.materials = await loadMaterials();
-  state.selectedModelId = localStorage.getItem(STORAGE_MODEL) || '';
-  state.reusePrompt = localStorage.getItem(STORAGE_REUSE_PROMPT) === '1';
-  state.reuseRef = localStorage.getItem(STORAGE_REUSE_REF) === '1';
+  const settings = await loadSettings();
+  state.selectedModelId = settings.selectedModelId || '';
+  state.reusePrompt = settings.reusePrompt === true;
+  state.reuseRef = settings.reuseRef === true;
   const savedId = await loadActiveId();
   console.log('[初始化] sessions:', Object.keys(state.sessions).length, '个, materials:', state.materials.length, '个, 当前会话ID:', savedId);
+
   if (savedId && state.sessions[savedId]) {
     state.currentSessionId = savedId;
     console.log('[初始化] 存在已保存会话, 重建画布');
-    rebuildCanvasFromSession();
+    await rebuildCanvasFromSession();
   } else {
-    console.log('[初始化] 无已保存会话, currentSessionId:', savedId, 'session存在:', !!state.sessions[savedId]);
+    const ids = Object.keys(state.sessions);
+    if (ids.length > 0) {
+      const fallbackId = ids[ids.length - 1];
+      state.currentSessionId = fallbackId;
+      saveActiveId(fallbackId);
+      console.log('[初始化] active 缺失，使用最近会话重建画布:', fallbackId);
+      await rebuildCanvasFromSession();
+    } else {
+      console.log('[初始化] 无已保存会话, currentSessionId:', savedId, 'session存在:', !!state.sessions[savedId]);
+    }
   }
 
-  // Flush data to backend on page unload (guaranteed delivery)
   window.addEventListener('pagehide', () => {
     const base = getStorageBase();
     if (!base) return;
-    if (!navigator.sendBeacon(base + '/api/sessions', JSON.stringify(state.sessions))) {
-      fetch(base + '/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state.sessions), keepalive: true }).catch(() => {});
+
+    const sessionsPayload = JSON.stringify(sanitizeForSave(state.sessions));
+    if (!navigator.sendBeacon(base + '/api/sessions', sessionsPayload)) {
+      fetch(base + '/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: sessionsPayload, keepalive: true }).catch(() => {});
     }
-    if (!navigator.sendBeacon(base + '/api/materials', JSON.stringify(state.materials))) {
-      fetch(base + '/api/materials', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state.materials), keepalive: true }).catch(() => {});
+
+    const materialsPayload = JSON.stringify(sanitizeForSave(state.materials));
+    if (!navigator.sendBeacon(base + '/api/materials', materialsPayload)) {
+      fetch(base + '/api/materials', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: materialsPayload, keepalive: true }).catch(() => {});
     }
+
+    const settingsPayload = JSON.stringify({
+      selectedModelId: state.selectedModelId,
+      reusePrompt: state.reusePrompt,
+      reuseRef: state.reuseRef
+    });
+    if (!navigator.sendBeacon(base + '/api/settings', settingsPayload)) {
+      fetch(base + '/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: settingsPayload, keepalive: true }).catch(() => {});
+    }
+
     beaconPost('/api/active', { id: state.currentSessionId });
   });
 }

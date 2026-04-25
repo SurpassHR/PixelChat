@@ -9,13 +9,13 @@ import { initModal } from './components/modal.js';
 import { initModelSelector } from './components/modelSelector.js';
 
 (async () => {
-  // Initialize store (loads from backend or localStorage)
+  // Initialize store (loads from backend SQLite)
   await initStore();
 
   // Create default session if none exists
   const { sessions, currentSessionId } = getState();
   if (!currentSessionId || !sessions[currentSessionId]) {
-    createSession();
+    await createSession();
   }
 
   // Initialize all components

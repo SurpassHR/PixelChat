@@ -1,15 +1,22 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
-import sqlite3, json, os, base64, uuid, time
+import sqlite3, json, os, base64, uuid, time, shutil
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r'/api/*': {'origins': '*', 'allow_headers': '*', 'expose_headers': '*'}})
+
+@app.after_request
+def add_response_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 DATA_DIR = 'data'
-IMAGES_DIR = os.path.join(DATA_DIR, 'images')
-os.makedirs(IMAGES_DIR, exist_ok=True)
-
 DB_PATH = os.path.join(DATA_DIR, 'store.db')
+os.makedirs(DATA_DIR, exist_ok=True)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -24,17 +31,18 @@ def get_db():
     conn.execute('''
         CREATE TABLE IF NOT EXISTS images (
             id TEXT PRIMARY KEY,
-            filename TEXT NOT NULL,
+            filename TEXT,
+            data TEXT NOT NULL,
+            mime_type TEXT DEFAULT 'image/png',
             hash TEXT,
             created_at INTEGER NOT NULL
         )
     ''')
-    # Migration: add hash column if table existed before the column was added
-    try:
-        conn.execute('ALTER TABLE images ADD COLUMN hash TEXT')
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    # Create unique index for hash dedup (IF NOT EXISTS skips if already present)
+    for col in ['data', 'mime_type']:
+        try:
+            conn.execute(f'ALTER TABLE images ADD COLUMN {col} TEXT')
+        except sqlite3.OperationalError:
+            pass
     conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_images_hash ON images(hash)')
     return conn
 
@@ -76,12 +84,23 @@ def save_materials():
     kv_set('materials', request.json)
     return jsonify({'ok': True})
 
+# --- Settings ---
+
+@app.route('/api/settings', methods=['GET'])
+def get_settings():
+    return jsonify(kv_get('settings', {}))
+
+@app.route('/api/settings', methods=['POST'])
+def save_settings():
+    kv_set('settings', request.json)
+    return jsonify({'ok': True})
+
 # --- Active session id ---
 
 @app.route('/api/active', methods=['GET'])
 def get_active():
     val = kv_get('active', '')
-    return val if isinstance(val, str) else ''
+    return jsonify(val if isinstance(val, str) else '')
 
 @app.route('/api/active', methods=['POST'])
 def save_active():
@@ -90,47 +109,110 @@ def save_active():
 
 # --- Image upload / serve ---
 
+def _migrate():
+    """One-time startup: import old files → SQLite, clean stale data, fix old URLs."""
+    conn = get_db()
+
+    # 1. Import old file-based images into SQLite, then delete old directory
+    old_dir = os.path.join(DATA_DIR, 'images')
+    if os.path.isdir(old_dir):
+        migrated = 0
+        for fname in os.listdir(old_dir):
+            fpath = os.path.join(old_dir, fname)
+            if not os.path.isfile(fpath):
+                continue
+            image_id = fname.rsplit('.', 1)[0] if '.' in fname else fname
+            ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else 'png'
+            mime_map = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+                        'gif': 'image/gif', 'webp': 'image/webp'}
+            mime = mime_map.get(ext, 'image/png')
+            row = conn.execute('SELECT data FROM images WHERE id=?', (image_id,)).fetchone()
+            if row is not None and row['data'] is not None:
+                continue
+            with open(fpath, 'rb') as f:
+                b64_data = base64.b64encode(f.read()).decode('ascii')
+            conn.execute(
+                'INSERT OR REPLACE INTO images (id, filename, data, mime_type, hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                (image_id, fname, b64_data, mime, None, int(os.path.getmtime(fpath)))
+            )
+            migrated += 1
+        conn.commit()
+        if migrated:
+            print(f'[迁移] 已将 {migrated} 个旧图片导入 SQLite')
+        shutil.rmtree(old_dir)
+        print(f'[清理] 已删除旧图片目录 {old_dir}')
+
+    # 2. Fix old URLs in kv table: strip .png extension from image URLs
+    import re as _re
+    for row in conn.execute('SELECT key, value FROM kv WHERE key IN ("sessions", "materials")').fetchall():
+        val = row['value']
+        fixed = _re.sub(r'(/api/images/[a-f0-9]+)\.\w+', r'\1', val)
+        if fixed != val:
+            conn.execute('UPDATE kv SET value=? WHERE key=?', (fixed, row['key']))
+    conn.commit()
+
+    # 3. Delete image records with no data (leftover from old schema)
+    deleted = conn.execute('DELETE FROM images WHERE data IS NULL').rowcount
+    if deleted:
+        print(f'[清理] 删除了 {deleted} 条无数据图片记录')
+
+    conn.close()
+
+_migrate()
+
 @app.route('/api/images', methods=['POST'])
 def upload_image():
     data = request.json
-    img_data = data['data']
-    if ',' in img_data:
-        img_data = img_data.split(',')[1]
-    ext = data.get('ext', 'png')
+    raw = data['data']
+    mime_type = 'image/png'
+    if ';' in raw and ',' in raw:
+        header = raw.split(',')[0]
+        mime_type = header.split(';')[0].split(':')[1] or 'image/png'
+        img_data = raw.split(',', 1)[1]
+    else:
+        img_data = raw
     img_hash = data.get('hash', '')
-
     image_id = uuid.uuid4().hex
-    filename = f"{image_id}.{ext}"
 
     conn = get_db()
     conn.execute(
-        'INSERT OR IGNORE INTO images (id, filename, hash, created_at) VALUES (?, ?, ?, ?)',
-        (image_id, filename, img_hash or None, int(time.time()))
+        'INSERT OR IGNORE INTO images (id, filename, data, mime_type, hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        (image_id, image_id + '.png', img_data, mime_type, img_hash or None, int(time.time()))
     )
     conn.commit()
 
     if img_hash:
-        # Check if our insert was accepted or ignored due to hash conflict
-        actual = conn.execute(
-            'SELECT filename FROM images WHERE id=?', (image_id,)
-        ).fetchone()
+        actual = conn.execute('SELECT id FROM images WHERE id=?', (image_id,)).fetchone()
         if actual is None:
-            # Another request inserted first with the same hash
-            existing = conn.execute(
-                'SELECT filename FROM images WHERE hash=?', (img_hash,)
-            ).fetchone()
+            existing = conn.execute('SELECT id FROM images WHERE hash=?', (img_hash,)).fetchone()
             conn.close()
-            return jsonify({'url': f'/api/images/{existing["filename"]}'})
+            return jsonify({'url': f'/api/images/{existing["id"]}'})
     conn.close()
 
-    with open(os.path.join(IMAGES_DIR, filename), 'wb') as f:
-        f.write(base64.b64decode(img_data))
+    return jsonify({'url': f'/api/images/{image_id}'})
 
-    return jsonify({'url': f'/api/images/{filename}'})
+@app.route('/api/images/<path:image_path>')
+def serve_image(image_path):
+    ext = image_path.rsplit('.', 1)[-1].lower() if '.' in image_path else 'png'
+    mime = {'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg',
+            'gif': 'image/gif', 'webp': 'image/webp'}.get(ext, 'image/png')
+    image_id = image_path.rsplit('.', 1)[0] if '.' in image_path else image_path
 
-@app.route('/api/images/<filename>')
-def serve_image(filename):
-    return send_from_directory(IMAGES_DIR, filename)
+    conn = get_db()
+    row = conn.execute('SELECT data, mime_type FROM images WHERE id=? AND data IS NOT NULL', (image_id,)).fetchone()
+    conn.close()
+
+    if row is None:
+        response = make_response('', 404)
+        response.headers.set('Content-Type', mime)
+        return response
+
+    img_bytes = base64.b64decode(row['data'])
+    response = make_response(img_bytes)
+    response.headers.set('Content-Type', row['mime_type'] or mime)
+    response.headers.set('Content-Disposition', 'inline')
+    response.headers.set('X-Content-Type-Options', 'nosniff')
+    return response
 
 if __name__ == '__main__':
     print('Backend running on http://127.0.0.1:5001')
