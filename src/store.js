@@ -43,7 +43,7 @@ export async function resolveIdbUrl(url) {
   return resolveBackendUrl(url);
 }
 
-function _cleanupResolvedUrls() {}
+function _cleanupResolvedUrls() { }
 
 const listeners = {};
 const _abortControllers = {};
@@ -60,7 +60,7 @@ export function cancelGeneration(placeholderId) {
   // Also cancel backend task if linked
   const item = state.canvasItems.find(i => i.itemId === placeholderId);
   if (item && item.taskId) {
-    cancelBackendTask(item.taskId).catch(() => {});
+    cancelBackendTask(item.taskId).catch(() => { });
   }
 }
 
@@ -177,8 +177,8 @@ function debouncedBackendSync() {
   if (_pendingSave) return;
   _pendingSave = setTimeout(async () => {
     _pendingSave = null;
-    try { await apiPost('/api/sessions', sanitizeForSave(state.sessions)); } catch {}
-    try { await apiPost('/api/materials', sanitizeForSave(state.materials)); } catch {}
+    try { await apiPost('/api/sessions', sanitizeForSave(state.sessions)); } catch { }
+    try { await apiPost('/api/materials', sanitizeForSave(state.materials)); } catch { }
     try {
       await apiPost('/api/settings', {
         selectedModelId: state.selectedModelId,
@@ -188,7 +188,7 @@ function debouncedBackendSync() {
         reuseRef: state.reuseRef,
         batchSize: state.batchSize
       });
-    } catch {}
+    } catch { }
   }, 200);
 }
 
@@ -250,7 +250,7 @@ function uploadItemImage(item) {
         if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
         saveSessions();
       }
-    }).catch(() => {});
+    }).catch(() => { });
   }
 }
 
@@ -269,16 +269,54 @@ function saveSessions() {
   debouncedBackendSync();
 }
 
+const STORAGE_ACTIVE_KEY = 'image-gen-active-session';
+
+function loadActiveIdFromLocalStorage() {
+  try {
+    const stored = localStorage.getItem(STORAGE_ACTIVE_KEY);
+    if (stored && stored !== 'undefined') return stored;
+  } catch (e) { console.log('[加载] localStorage active 不可用:', e.message); }
+  return '';
+}
+
+function saveActiveIdToLocalStorage(id) {
+  try {
+    if (id) localStorage.setItem(STORAGE_ACTIVE_KEY, id);
+    else localStorage.removeItem(STORAGE_ACTIVE_KEY);
+  } catch (e) { console.log('[保存] localStorage active 不可用:', e.message); }
+}
+
 async function loadActiveId() {
+  // Try backend first
+  let backendId = '';
   try {
     const val = await apiGet('/api/active');
-    if (val) return val;
+    if (val) backendId = val;
   } catch (e) { console.log('[加载] 后端 active 不可用:', e.message); }
+
+  // If backend returned a valid ID, use it and sync to localStorage
+  if (backendId) {
+    saveActiveIdToLocalStorage(backendId);
+    return backendId;
+  }
+
+  // Fallback to localStorage
+  const localId = loadActiveIdFromLocalStorage();
+  if (localId) {
+    console.log('[加载] 使用 localStorage 中的会话 ID:', localId);
+    // Optionally sync back to backend when it becomes available
+    beaconPost('/api/active', { id: localId });
+    return localId;
+  }
+
   return '';
 }
 
 function saveActiveId(id) {
+  // Save to backend via beacon
   beaconPost('/api/active', { id });
+  // Also save to localStorage for fallback
+  saveActiveIdToLocalStorage(id);
 }
 
 // --- Session management ---
@@ -722,12 +760,12 @@ export async function initStore() {
 
     const sessionsPayload = JSON.stringify(sanitizeForSave(state.sessions));
     if (!navigator.sendBeacon(base + '/api/sessions', sessionsPayload)) {
-      fetch(base + '/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: sessionsPayload, keepalive: true }).catch(() => {});
+      fetch(base + '/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: sessionsPayload, keepalive: true }).catch(() => { });
     }
 
     const materialsPayload = JSON.stringify(sanitizeForSave(state.materials));
     if (!navigator.sendBeacon(base + '/api/materials', materialsPayload)) {
-      fetch(base + '/api/materials', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: materialsPayload, keepalive: true }).catch(() => {});
+      fetch(base + '/api/materials', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: materialsPayload, keepalive: true }).catch(() => { });
     }
 
     const settingsPayload = JSON.stringify({
@@ -739,7 +777,7 @@ export async function initStore() {
       batchSize: state.batchSize
     });
     if (!navigator.sendBeacon(base + '/api/settings', settingsPayload)) {
-      fetch(base + '/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: settingsPayload, keepalive: true }).catch(() => {});
+      fetch(base + '/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: settingsPayload, keepalive: true }).catch(() => { });
     }
 
     beaconPost('/api/active', { id: state.currentSessionId });
