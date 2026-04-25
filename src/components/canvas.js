@@ -32,7 +32,12 @@ export function renderCanvas() {
     el.draggable = true;
 
     if (item.generating) {
-      el.innerHTML = '<div class="gen-dots"><span class="gen-dot"></span><span class="gen-dot"></span><span class="gen-dot"></span></div><button class="gen-cancel" data-item-id="' + item.itemId + '" title="取消生成">×</button>';
+      el.innerHTML =
+        '<div class="gen-shimmer"></div>' +
+        '<div class="gen-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>' +
+        '<div class="gen-label">正在生成...</div>' +
+        '<div class="gen-progress"><div class="gen-progress-bar"></div></div>' +
+        '<button class="gen-cancel" data-item-id="' + item.itemId + '" title="取消生成">×</button>';
     } else if (item.status === 'ok') {
       el.innerHTML = `<img src="${item.imageUrl}" alt="生成图片">`;
       const label = document.createElement('div');

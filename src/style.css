@@ -319,9 +319,10 @@ body {
 .canvas-item:hover .item-label { opacity: 1; }
 .canvas-item.selected .item-label { opacity: 1; }
 
-/* Generating dot wave */
+/* Generating shimmer animation */
 .canvas-item.generating {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: var(--surface2);
@@ -329,20 +330,80 @@ body {
   width: 200px;
   height: 200px;
   position: relative;
+  overflow: hidden;
 }
-.gen-dots { display: flex; gap: 8px; }
-.gen-dot {
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: dotWave 1.4s ease-in-out infinite;
+.gen-shimmer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
 }
-.gen-dot:nth-child(1) { animation-delay: 0s; }
-.gen-dot:nth-child(2) { animation-delay: 0.2s; }
-.gen-dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes dotWave {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
-  30% { transform: translateY(-12px); opacity: 1; }
+.gen-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 50%,
+    transparent 100%
+  );
+  animation: shimmer 2s infinite ease-in-out;
+}
+@keyframes shimmer {
+  0% { transform: translateX(-150%); }
+  100% { transform: translateX(150%); }
+}
+.gen-icon {
+  position: relative;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.08);
+  animation: genPulse 2s infinite ease-in-out;
+}
+.gen-icon svg {
+  width: 18px;
+  height: 18px;
+  color: rgba(255,255,255,0.3);
+  display: block;
+}
+@keyframes genPulse {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+.gen-label {
+  position: relative;
+  z-index: 1;
+  margin-top: 8px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+.gen-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: rgba(255,255,255,0.05);
+  z-index: 1;
+}
+.gen-progress-bar {
+  height: 100%;
+  background: rgba(255,255,255,0.3);
+  animation: genProgressIndeterminate 2s infinite ease-in-out;
+}
+@keyframes genProgressIndeterminate {
+  0% { width: 0%; margin-left: 0; }
+  50% { width: 50%; margin-left: 25%; }
+  100% { width: 0%; margin-left: 100%; }
 }
 .gen-cancel {
   position: absolute;
