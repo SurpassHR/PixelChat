@@ -1,4 +1,4 @@
-import { getState, subscribe } from '../store.js';
+import { getState, setState, subscribe } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { selectModel, fetchModels } from './modelSelector.js';
 
@@ -125,8 +125,18 @@ function executeHighlighted() {
   close();
   switch (cmd) {
     case 'new-session': $('#newSessionBtn').click(); break;
-    case 'toggle-reuse-prompt': $('#reuseToggle').click(); break;
-    case 'toggle-reuse-ref': $('#reuseRefToggle').click(); break;
+    case 'toggle-reuse-prompt': {
+      const cb = document.querySelector('#dropdownTogglePrompt input');
+      if (cb) cb.checked = !cb.checked;
+      setState({ reusePrompt: !getState().reusePrompt });
+      break;
+    }
+    case 'toggle-reuse-ref': {
+      const cb = document.querySelector('#dropdownToggleRef input');
+      if (cb) cb.checked = !cb.checked;
+      setState({ reuseRef: !getState().reuseRef });
+      break;
+    }
     case 'focus-prompt': $('#promptInput').focus(); break;
     case 'clear-canvas': {
       const el = $$('.menu-item[data-action="clearCanvas"]');
@@ -232,8 +242,18 @@ export function initCommandPalette() {
     close();
     switch (cmd) {
       case 'new-session': $('#newSessionBtn').click(); break;
-      case 'toggle-reuse-prompt': $('#reuseToggle').click(); break;
-      case 'toggle-reuse-ref': $('#reuseRefToggle').click(); break;
+      case 'toggle-reuse-prompt': {
+        const cb = document.querySelector('#dropdownTogglePrompt input');
+        if (cb) cb.checked = !cb.checked;
+        setState({ reusePrompt: !getState().reusePrompt });
+        break;
+      }
+      case 'toggle-reuse-ref': {
+        const cb = document.querySelector('#dropdownToggleRef input');
+        if (cb) cb.checked = !cb.checked;
+        setState({ reuseRef: !getState().reuseRef });
+        break;
+      }
       case 'focus-prompt': $('#promptInput').focus(); break;
       case 'clear-canvas': {
         const el = $$('.menu-item[data-action="clearCanvas"]');
@@ -250,9 +270,18 @@ export function initCommandPalette() {
     }
   });
 
-  // Header model selector opens palette in model mode
-  $('#modelSelector').addEventListener('click', e => {
+  // Dropdown model edit opens palette in model mode
+  const modelEdit = $('#dropdownModelEdit');
+  const modelRow = $('#dropdownModelRow');
+  const openModelMode = e => {
     e.stopPropagation();
+    // Close dropdown first
+    const dropdown = $('#optionsDropdown');
+    if (dropdown) dropdown.style.display = 'none';
+    const trigger = $('#optionsTrigger');
+    if (trigger) trigger.setAttribute('aria-expanded', 'false');
     open('models');
-  });
+  };
+  if (modelEdit) modelEdit.addEventListener('click', openModelMode);
+  if (modelRow) modelRow.addEventListener('click', openModelMode);
 }

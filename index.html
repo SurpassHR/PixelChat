@@ -24,10 +24,6 @@
     <div class="header">
       <div class="header-left">
         <h1>图片生成</h1>
-        <div class="model-selector" id="modelSelector" title="点击切换模型">
-          <span class="model-selector-current" id="currentModelDisplay">加载中...</span>
-          <span class="model-selector-arrow">▾</span>
-        </div>
       </div>
       <div class="header-actions">
         <span class="canvas-info" id="canvasInfo"></span>
@@ -51,9 +47,47 @@
       <div class="attachments" id="attachments"></div>
       <div class="prompt-row">
         <textarea id="promptInput" rows="2" placeholder="输入提示词描述你想要生成的图片..."></textarea>
-        <button class="reuse-toggle" id="reuseToggle" title="复用提示词（发送后不清理输入框）">📌</button>
-        <button class="reuse-toggle" id="reuseRefToggle" title="复用参考图（发送后不清除参考图）">🖼️</button>
-        <button class="generate-btn" id="generateBtn">生成</button>
+        <div class="prompt-actions">
+          <div class="options-menu">
+            <button class="options-trigger" id="optionsTrigger" aria-haspopup="menu" aria-expanded="false">
+              <span class="trigger-model" id="triggerModelDisplay">加载中...</span>
+              <span class="trigger-batch" id="triggerBatchBadge">×1</span>
+              <span class="trigger-arrow">▾</span>
+            </button>
+            <div class="options-dropdown" id="optionsDropdown" style="display:none">
+              <div class="dropdown-section">
+                <div class="dropdown-model-row" id="dropdownModelRow">
+                  <span class="dropdown-model-label">模型</span>
+                  <span class="dropdown-model-value" id="dropdownModelValue">-</span>
+                  <span class="dropdown-model-edit" title="切换模型">✎</span>
+                </div>
+              </div>
+              <div class="dropdown-section">
+                <div class="dropdown-section-title">批量</div>
+                <div class="dropdown-batch-row" id="dropdownBatchRow">
+                  <button class="batch-opt" data-batch="1">1</button>
+                  <button class="batch-opt" data-batch="2">2</button>
+                  <button class="batch-opt" data-batch="4">4</button>
+                  <button class="batch-opt" data-batch="8">8</button>
+                </div>
+              </div>
+              <div class="dropdown-section">
+                <div class="dropdown-section-title">选项</div>
+                <label class="dropdown-toggle-row" id="dropdownTogglePrompt">
+                  <span>复用提示词</span>
+                  <input type="checkbox">
+                  <span class="toggle-indicator"></span>
+                </label>
+                <label class="dropdown-toggle-row" id="dropdownToggleRef">
+                  <span>复用参考图</span>
+                  <input type="checkbox">
+                  <span class="toggle-indicator"></span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <button class="generate-btn" id="generateBtn">生成</button>
+        </div>
       </div>
     </div>
   </div>

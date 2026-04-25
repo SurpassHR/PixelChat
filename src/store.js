@@ -15,7 +15,8 @@ const state = {
   materials: [],
   viewport: { panX: 0, panY: 0, zoom: 1 },
   statusText: '就绪',
-  generating: false
+  generating: false,
+  batchSize: 1
 };
 
 function sanitizeForSave(obj) {
@@ -70,7 +71,7 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
-  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial) {
+  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial) {
     saveSettings();
   }
   for (const key of Object.keys(partial)) {
@@ -179,7 +180,8 @@ function debouncedBackendSync() {
         selectedProvider: state.selectedProvider,
         providers: state.providers,
         reusePrompt: state.reusePrompt,
-        reuseRef: state.reuseRef
+        reuseRef: state.reuseRef,
+        batchSize: state.batchSize
       });
     } catch {}
   }, 200);
@@ -687,6 +689,7 @@ export async function initStore() {
   rebuildModels();
   state.reusePrompt = settings.reusePrompt === true;
   state.reuseRef = settings.reuseRef === true;
+  state.batchSize = settings.batchSize || 1;
   const savedId = await loadActiveId();
   console.log('[初始化] sessions:', Object.keys(state.sessions).length, '个, materials:', state.materials.length, '个, 当前会话ID:', savedId);
 
@@ -726,7 +729,8 @@ export async function initStore() {
       selectedProvider: state.selectedProvider,
       providers: state.providers,
       reusePrompt: state.reusePrompt,
-      reuseRef: state.reuseRef
+      reuseRef: state.reuseRef,
+      batchSize: state.batchSize
     });
     if (!navigator.sendBeacon(base + '/api/settings', settingsPayload)) {
       fetch(base + '/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: settingsPayload, keepalive: true }).catch(() => {});

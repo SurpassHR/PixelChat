@@ -1,5 +1,5 @@
 import { getState, setState, subscribe, appendMessage, addResultToCanvas, addDroppedImage, addMaterial, addGeneratingPlaceholder, registerAbort } from '../store.js';
-import { $, escapeHtml } from '../domHelpers.js';
+import { $, $$, escapeHtml } from '../domHelpers.js';
 import { getApiConfig, generateImage } from '../api.js';
 import { showToast } from '../toast.js';
 
@@ -31,7 +31,7 @@ function removeRefImage(index) {
 
 async function generate() {
   const { base, key } = getApiConfig();
-  const { selectedModelId, refImages, reusePrompt, reuseRef } = getState();
+  const { selectedModelId, refImages, reusePrompt, reuseRef, batchSize } = getState();
   const prompt = $('#promptInput').value.trim();
 
   if (!selectedModelId) {
@@ -43,17 +43,23 @@ async function generate() {
     return;
   }
 
-  setState({ statusText: '正在生成...' });
+  setState({ statusText: `正在生成 ${batchSize} 张图片...` });
 
   const turnRefs = [...refImages];
 
-  // Add generating placeholder to canvas
-  const genItem = addGeneratingPlaceholder(prompt, turnRefs);
-  const placeholderId = genItem?.itemId;
+  // Save batchSize to store for persistence
+  setState({ batchSize });
 
-  // Create abort controller for cancellation
-  const controller = new AbortController();
-  if (placeholderId) registerAbort(placeholderId, controller);
+  // Create generating placeholders and abort controllers
+  const placeholders = [];
+  for (let i = 0; i < batchSize; i++) {
+    const genItem = addGeneratingPlaceholder(prompt, turnRefs);
+    const controller = new AbortController();
+    if (genItem?.itemId) {
+      registerAbort(genItem.itemId, controller);
+      placeholders.push({ placeholderId: genItem.itemId, controller });
+    }
+  }
 
   // Store user message
   await appendMessage({ role: 'user', prompt, refImages: turnRefs });
@@ -66,71 +72,81 @@ async function generate() {
     setState({ refImages: [] });
   }
 
-  try {
-    const { imageUrl } = await generateImage({
-      base, key,
-      model: selectedModelId,
-      prompt,
-      refImages: turnRefs,
-      signal: controller.signal
-    });
-
-    if (imageUrl) {
-      await addResultToCanvas({
-        status: 'ok',
-        imageUrl,
+  // Launch all generations in parallel
+  const results = await Promise.allSettled(
+    placeholders.map(({ placeholderId, controller }) =>
+      generateImage({
+        base, key,
+        model: selectedModelId,
         prompt,
         refImages: turnRefs,
-        placeholderId
-      });
-      setState({ statusText: '生成完成' });
+        signal: controller.signal
+      }).then(({ imageUrl }) => ({ placeholderId, imageUrl }))
+    )
+  );
+
+  let successCount = 0;
+  let failCount = 0;
+
+  for (let i = 0; i < results.length; i++) {
+    const { placeholderId } = placeholders[i];
+    const result = results[i];
+
+    if (result.status === 'fulfilled') {
+      const { imageUrl } = result.value;
+      if (imageUrl) {
+        await addResultToCanvas({
+          status: 'ok', imageUrl, prompt, refImages: turnRefs, placeholderId
+        });
+        successCount++;
+      } else {
+        const errMsg = '响应中未找到图片URL';
+        console.error('[生成失败]', errMsg);
+        showToast(errMsg, 'error');
+        await addResultToCanvas({
+          status: 'error', error: errMsg, prompt, refImages: turnRefs, placeholderId
+        });
+        failCount++;
+      }
     } else {
-      const errMsg = '响应中未找到图片URL';
+      if (result.reason?.name === 'AbortError') continue;
+      const errMsg = result.reason?.message || '生成失败';
       console.error('[生成失败]', errMsg);
       showToast(errMsg, 'error');
       await addResultToCanvas({
-        status: 'error',
-        error: errMsg,
-        prompt,
-        refImages: turnRefs,
-        placeholderId
+        status: 'error', error: errMsg, prompt, refImages: turnRefs, placeholderId
       });
-      setState({ statusText: errMsg });
+      failCount++;
     }
-  } catch (e) {
-    if (e.name === 'AbortError') {
-      setState({ statusText: '已取消生成' });
-      return;
-    }
-    console.error('[生成失败]', e.message);
-    showToast(e.message, 'error');
-    await addResultToCanvas({
-      status: 'error',
-      error: e.message,
-      prompt,
-      refImages: turnRefs,
-      placeholderId
-    });
+  }
+
+  const total = successCount + failCount;
+  if (successCount === total) {
+    setState({ statusText: `生成完成（${total} 张）` });
+  } else if (successCount > 0) {
+    setState({ statusText: `完成 ${successCount}/${total} 张，${failCount} 张失败` });
+  } else {
     setState({ statusText: '生成失败' });
   }
 }
 
-function toggleReuse() {
-  const { reusePrompt } = getState();
-  const next = !reusePrompt;
-  setState({ reusePrompt: next });
-  const toggle = $('#reuseToggle');
-  toggle.classList.toggle('active', next);
-  toggle.title = next ? '复用提示词（开启）— 发送后提示词将保留' : '复用提示词（关闭）— 发送后清空输入框';
-}
+function syncDropdownState() {
+  const { batchSize, reusePrompt, reuseRef } = getState();
 
-function toggleReuseRef() {
-  const { reuseRef } = getState();
-  const next = !reuseRef;
-  setState({ reuseRef: next });
-  const toggle = $('#reuseRefToggle');
-  toggle.classList.toggle('active', next);
-  toggle.title = next ? '复用参考图（开启）— 发送后参考图将保留' : '复用参考图（关闭）— 发送后清空参考图';
+  // Update batch badge
+  const badge = $('#triggerBatchBadge');
+  if (badge) badge.textContent = '×' + batchSize;
+
+  // Update batch option buttons
+  $$('.batch-opt').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.batch) === batchSize);
+  });
+
+  // Update reuse checkboxes
+  const promptCb = document.querySelector('#dropdownTogglePrompt input');
+  if (promptCb) promptCb.checked = reusePrompt;
+  const refCb = document.querySelector('#dropdownToggleRef input');
+  if (refCb) refCb.checked = reuseRef;
 }
 
 export function initPromptArea() {
@@ -145,14 +161,58 @@ export function initPromptArea() {
     }
   });
 
-  // Reuse toggle
-  $('#reuseToggle').addEventListener('click', toggleReuse);
-  $('#reuseRefToggle').addEventListener('click', toggleReuseRef);
+  // Sync initial dropdown state
+  syncDropdownState();
 
-  // Init button states from saved values
-  const { reusePrompt, reuseRef } = getState();
-  if (reusePrompt) $('#reuseToggle').classList.add('active');
-  if (reuseRef) $('#reuseRefToggle').classList.add('active');
+  // Dropdown toggle
+  const trigger = $('#optionsTrigger');
+  const dropdown = $('#optionsDropdown');
+  trigger.addEventListener('click', e => {
+    e.stopPropagation();
+    const isOpen = dropdown.style.display !== 'none';
+    dropdown.style.display = isOpen ? 'none' : 'block';
+    trigger.setAttribute('aria-expanded', !isOpen);
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.options-menu')) {
+      dropdown.style.display = 'none';
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  // Batch size buttons
+  $('#dropdownBatchRow').addEventListener('click', e => {
+    const btn = e.target.closest('.batch-opt');
+    if (!btn) return;
+    const val = parseInt(btn.dataset.batch);
+    if (val) {
+      setState({ batchSize: val });
+      syncDropdownState();
+    }
+  });
+
+  // Reuse prompt toggle
+  const promptToggle = document.querySelector('#dropdownTogglePrompt input');
+  if (promptToggle) {
+    promptToggle.addEventListener('change', () => {
+      setState({ reusePrompt: promptToggle.checked });
+    });
+  }
+
+  // Reuse ref toggle
+  const refToggle = document.querySelector('#dropdownToggleRef input');
+  if (refToggle) {
+    refToggle.addEventListener('change', () => {
+      setState({ reuseRef: refToggle.checked });
+    });
+  }
+
+  // Subscribe to state changes for UI sync
+  subscribe('batchSize', syncDropdownState);
+  subscribe('reusePrompt', syncDropdownState);
+  subscribe('reuseRef', syncDropdownState);
 
   // Remove attachment delegation
   $('#attachments').addEventListener('click', e => {

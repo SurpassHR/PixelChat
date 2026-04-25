@@ -12,7 +12,7 @@ function selectModel(id) {
   } else if (model && model.owner) {
     setState({ selectedProvider: model.owner });
   }
-  updateCurrentDisplay(id);
+  updateModelDisplay(id);
   setState({ statusText: `已选择: ${id}` });
 }
 
@@ -69,17 +69,24 @@ async function fetchModels() {
       if (model && model.provider) {
         setState({ selectedProvider: model.provider });
       }
-      updateCurrentDisplay(selectedModelId);
+      updateModelDisplay(selectedModelId);
     }
   }
 }
 
-function updateCurrentDisplay(id) {
-  const el = $('#currentModelDisplay');
-  if (el) el.textContent = id || '未选择';
+function updateModelDisplay(id) {
+  const display = $('#triggerModelDisplay');
+  if (display) display.textContent = id || '未选择';
+  const badge = $('#triggerBatchBadge');
+  if (badge) {
+    const { batchSize } = getState();
+    badge.textContent = '×' + (batchSize || 1);
+  }
+  const val = $('#dropdownModelValue');
+  if (val) val.textContent = id || '-';
 }
 
-export { selectModel, fetchModels, updateCurrentDisplay };
+export { selectModel, fetchModels, updateModelDisplay };
 
 export function initModelSelector() {
   // Auto-fetch models from all configured providers on startup

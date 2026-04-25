@@ -1,6 +1,6 @@
 import { getState, setState, subscribe, addProvider, removeProvider, updateProviderModels, toggleModelEnabled, updateProviderConfig } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
-import { selectModel, updateCurrentDisplay } from './modelSelector.js';
+import { selectModel } from './modelSelector.js';
 import { fetchModels as apiFetchModels } from '../api.js';
 
 const overlay = $('#settingsModalOverlay');
