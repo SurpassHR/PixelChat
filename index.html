@@ -159,17 +159,16 @@
     </div>
   </div>
 
-  <!-- Model Selection Modal -->
-  <div class="modal-overlay" id="modelSelectOverlay" style="display:none">
-    <div class="modal-content modal-model-select">
+  <!-- Command Palette -->
+  <div class="modal-overlay" id="commandPaletteOverlay" style="display:none">
+    <div class="modal-content command-palette">
       <div class="modal-header">
-        <h3>选择模型</h3>
-        <button class="modal-close" id="modelSelectCloseBtn">×</button>
+        <h3 id="commandPaletteTitle">命令面板</h3>
+        <button class="modal-close" id="commandPaletteCloseBtn">×</button>
       </div>
-      <div class="modal-body">
-        <input type="text" class="model-filter" id="modelFilter" placeholder="输入关键词筛选模型...">
-        <div class="model-list" id="modelList"></div>
-        <button class="refresh-models-btn" id="refreshModelsBtn">刷新模型列表</button>
+      <div class="modal-body cmd-body">
+        <input type="text" class="model-filter" id="commandPaletteInput" placeholder="输入命令关键词..." autocomplete="off" spellcheck="false">
+        <div class="cmd-list" id="commandList"></div>
       </div>
     </div>
   </div>

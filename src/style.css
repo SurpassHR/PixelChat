@@ -221,33 +221,6 @@ body {
 }
 .model-filter:focus { border-color: var(--accent-dim); }
 .model-filter::placeholder { color: var(--text2); }
-.model-list { display: flex; flex-direction: column; gap: 3px; max-height: min(50vh, 400px); overflow-y: auto; }
-.model-item {
-  padding: 6px 10px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: 12px;
-  transition: background 0.15s;
-  border: 1px solid transparent;
-  word-break: break-all;
-}
-.model-item:hover { background: var(--surface2); }
-.model-item.active { background: var(--surface2); border-color: var(--accent-dim); }
-.model-item .id { font-weight: 500; }
-.model-item .owner { font-size: 11px; color: var(--text2); margin-top: 2px; }
-.refresh-models-btn {
-  width: 100%;
-  padding: 6px;
-  border-radius: var(--radius);
-  border: 2px dashed var(--border);
-  background: transparent;
-  color: var(--text2);
-  font-size: 11px;
-  cursor: pointer;
-  transition: border-color 0.2s, color 0.2s;
-  margin-top: 3px;
-}
-.refresh-models-btn:hover { border-color: var(--accent-dim); color: var(--accent); }
 
 /* Main area */
 .main {
@@ -578,14 +551,6 @@ body {
   display: flex;
   flex-direction: column;
 }
-.modal-detail {
-  width: 80vw;
-  max-width: none;
-  max-height: 80vh;
-}
-.modal-model-select {
-  max-width: 420px;
-}
 .modal-header {
   display: flex;
   align-items: center;
@@ -846,4 +811,55 @@ body {
   background: rgba(76, 175, 80, 0.15);
   border: 1px solid #4caf50;
   color: #4caf50;
+}
+
+/* Command Palette */
+.command-palette {
+  max-width: 500px;
+  max-height: 60vh;
+}
+.cmd-body {
+  flex-direction: column;
+  gap: 6px;
+}
+.cmd-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(50vh, 400px);
+  overflow-y: auto;
+}
+.cmd-item {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.1s;
+  border: 1px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.cmd-item:hover, .cmd-item.highlighted {
+  background: var(--surface2);
+  border-color: var(--accent-dim);
+}
+.cmd-item .cmd-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--surface2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.cmd-item .cmd-label {
+  flex: 1;
+  font-weight: 500;
+}
+.cmd-item .cmd-hint {
+  font-size: 11px;
+  color: var(--text2);
 }
