@@ -57,6 +57,11 @@ export function registerAbort(placeholderId, controller) {
 export function cancelGeneration(placeholderId) {
   const ctrl = _abortControllers[placeholderId];
   if (ctrl) { ctrl.abort(); delete _abortControllers[placeholderId]; }
+  // Also cancel backend task if linked
+  const item = state.canvasItems.find(i => i.itemId === placeholderId);
+  if (item && item.taskId) {
+    cancelBackendTask(item.taskId).catch(() => {});
+  }
 }
 
 export function subscribe(key, fn) {
@@ -363,10 +368,11 @@ function getViewportCenter() {
 
 // --- Generating placeholders ---
 
-export function addGeneratingPlaceholder(prompt, refImages) {
+export function addGeneratingPlaceholder(prompt, refImages, taskId) {
   const id = generateId();
   const item = {
     itemId: 'gen-' + id,
+    taskId: taskId || '',
     messageIndex: -1,
     imageUrl: '',
     prompt: prompt || '',
@@ -738,4 +744,37 @@ export async function initStore() {
 
     beaconPost('/api/active', { id: state.currentSessionId });
   });
+}
+
+// ============================================================
+// Task Queue API
+// ============================================================
+
+const STORAGE = () => import.meta.env.VITE_STORAGE_BASE || 'http://127.0.0.1:5001';
+
+export async function submitTask({ prompt, model, provider, refs }) {
+  const base = STORAGE();
+  const res = await fetch(`${base}/api/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, model, provider, refs })
+  });
+  if (!res.ok) throw new Error(`submitTask HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function fetchTasks() {
+  const base = STORAGE();
+  try {
+    const res = await fetch(`${base}/api/tasks`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch { return []; }
+}
+
+export async function cancelBackendTask(taskId) {
+  const base = STORAGE();
+  const res = await fetch(`${base}/api/tasks/${taskId}/cancel`, { method: 'POST' });
+  if (!res.ok) throw new Error(`cancelTask HTTP ${res.status}`);
+  return res.json();
 }

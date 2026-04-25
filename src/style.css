@@ -69,6 +69,109 @@ body {
   margin: 0 -20px;
   padding: 0 20px;
 }
+
+/* Task Queue */
+.taskqueue-section {
+  flex-shrink: 0;
+  max-height: 35%;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  padding: 0 20px;
+  min-height: 0;
+}
+.taskqueue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0 6px;
+  flex-shrink: 0;
+}
+.taskqueue-header h2 { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+.taskqueue-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 -20px;
+  padding: 0 20px 8px;
+}
+.tq-empty {
+  color: var(--text2);
+  font-size: 12px;
+  text-align: center;
+  padding: 12px 0;
+}
+.tq-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--surface2);
+  border: 1px solid transparent;
+  font-size: 12px;
+  transition: border-color 0.2s;
+}
+.tq-item:hover { border-color: var(--border); }
+.tq-status {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.tq-status.tq-status-pending { color: var(--text2); }
+.tq-status.tq-status-running { color: var(--accent); animation: tqPulse 1.2s infinite; }
+.tq-status.tq-status-completed { color: #4caf50; }
+.tq-status.tq-status-failed { color: var(--danger); }
+@keyframes tqPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+.tq-body {
+  flex: 1;
+  min-width: 0;
+}
+.tq-prompt {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tq-meta {
+  color: var(--text2);
+  font-size: 11px;
+  margin-top: 2px;
+}
+.tq-error {
+  color: var(--danger);
+  font-size: 10px;
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tq-cancel {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text2);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  margin-top: 1px;
+}
+.tq-cancel:hover {
+  background: rgba(242, 139, 130, 0.15);
+  color: var(--danger);
+}
 .session-item {
   padding: 10px;
   border-radius: var(--radius);

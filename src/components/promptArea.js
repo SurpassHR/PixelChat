@@ -1,6 +1,5 @@
-import { getState, setState, subscribe, appendMessage, addResultToCanvas, addDroppedImage, addMaterial, addGeneratingPlaceholder, registerAbort } from '../store.js';
+import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
-import { getApiConfig, generateImage } from '../api.js';
 import { showToast } from '../toast.js';
 
 function renderAttachments() {
@@ -30,8 +29,7 @@ function removeRefImage(index) {
 }
 
 async function generate() {
-  const { base, key } = getApiConfig();
-  const { selectedModelId, refImages, reusePrompt, reuseRef, batchSize } = getState();
+  const { selectedModelId, selectedProvider, refImages, reusePrompt, reuseRef, batchSize } = getState();
   const prompt = $('#promptInput').value.trim();
 
   if (!selectedModelId) {
@@ -43,22 +41,37 @@ async function generate() {
     return;
   }
 
-  setState({ statusText: `正在生成 ${batchSize} 张图片...` });
+  setState({ statusText: `正在提交 ${batchSize} 个任务...` });
 
   const turnRefs = [...refImages];
 
   // Save batchSize to store for persistence
   setState({ batchSize });
 
-  // Create generating placeholders and abort controllers
-  const placeholders = [];
-  for (let i = 0; i < batchSize; i++) {
-    const genItem = addGeneratingPlaceholder(prompt, turnRefs);
-    const controller = new AbortController();
-    if (genItem?.itemId) {
-      registerAbort(genItem.itemId, controller);
-      placeholders.push({ placeholderId: genItem.itemId, controller });
+  // Submit tasks to backend queue in parallel
+  const refs = turnRefs.map(r => ({ name: r.name, dataUrl: r.dataUrl }));
+  const submissions = Array.from({ length: batchSize }, () =>
+    submitTask({ prompt, model: selectedModelId, provider: selectedProvider, refs })
+  );
+  const results = await Promise.allSettled(submissions);
+
+  const taskIds = [];
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      taskIds.push(r.value.id);
+    } else {
+      showToast('提交任务失败: ' + (r.reason?.message || '未知错误'), 'error');
     }
+  }
+
+  if (taskIds.length === 0) {
+    setState({ statusText: '提交任务失败' });
+    return;
+  }
+
+  // Create generating placeholders linked to tasks
+  for (const taskId of taskIds) {
+    addGeneratingPlaceholder(prompt, turnRefs, taskId);
   }
 
   // Store user message
@@ -72,62 +85,7 @@ async function generate() {
     setState({ refImages: [] });
   }
 
-  // Launch all generations in parallel
-  const results = await Promise.allSettled(
-    placeholders.map(({ placeholderId, controller }) =>
-      generateImage({
-        base, key,
-        model: selectedModelId,
-        prompt,
-        refImages: turnRefs,
-        signal: controller.signal
-      }).then(({ imageUrl }) => ({ placeholderId, imageUrl }))
-    )
-  );
-
-  let successCount = 0;
-  let failCount = 0;
-
-  for (let i = 0; i < results.length; i++) {
-    const { placeholderId } = placeholders[i];
-    const result = results[i];
-
-    if (result.status === 'fulfilled') {
-      const { imageUrl } = result.value;
-      if (imageUrl) {
-        await addResultToCanvas({
-          status: 'ok', imageUrl, prompt, refImages: turnRefs, placeholderId
-        });
-        successCount++;
-      } else {
-        const errMsg = '响应中未找到图片URL';
-        console.error('[生成失败]', errMsg);
-        showToast(errMsg, 'error');
-        await addResultToCanvas({
-          status: 'error', error: errMsg, prompt, refImages: turnRefs, placeholderId
-        });
-        failCount++;
-      }
-    } else {
-      if (result.reason?.name === 'AbortError') continue;
-      const errMsg = result.reason?.message || '生成失败';
-      console.error('[生成失败]', errMsg);
-      showToast(errMsg, 'error');
-      await addResultToCanvas({
-        status: 'error', error: errMsg, prompt, refImages: turnRefs, placeholderId
-      });
-      failCount++;
-    }
-  }
-
-  const total = successCount + failCount;
-  if (successCount === total) {
-    setState({ statusText: `生成完成（${total} 张）` });
-  } else if (successCount > 0) {
-    setState({ statusText: `完成 ${successCount}/${total} 张，${failCount} 张失败` });
-  } else {
-    setState({ statusText: '生成失败' });
-  }
+  setState({ statusText: `已提交 ${taskIds.length} 个任务到队列` });
 }
 
 function syncDropdownState() {

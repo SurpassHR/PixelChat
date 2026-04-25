@@ -9,6 +9,7 @@ import { initModal } from './components/modal.js';
 import { initModelSelector } from './components/modelSelector.js';
 import { initCommandPalette } from './components/commandPalette.js';
 import { initSettingsModal } from './components/settingsModal.js';
+import { initTaskQueue } from './components/taskQueue.js';
 
 (async () => {
   // Initialize store (loads from backend SQLite)
@@ -30,6 +31,7 @@ import { initSettingsModal } from './components/settingsModal.js';
   initModelSelector();
   initCommandPalette();
   initSettingsModal();
+  initTaskQueue();
 
   // Subscribe to status text updates
   subscribe('statusText', () => {
