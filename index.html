@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>图片生成</title>
   <link rel="stylesheet" href="/src/style.css">
 </head>
+
 <body>
   <div class="sidebar">
     <div class="history-section">
@@ -199,7 +201,8 @@
         <button class="modal-close" id="commandPaletteCloseBtn">×</button>
       </div>
       <div class="modal-body cmd-body">
-        <input type="text" class="model-filter" id="commandPaletteInput" placeholder="输入命令关键词..." autocomplete="off" spellcheck="false">
+        <input type="text" class="model-filter" id="commandPaletteInput" placeholder="输入命令关键词..." autocomplete="off"
+          spellcheck="false">
         <div class="cmd-list" id="commandList"></div>
       </div>
     </div>
@@ -276,7 +279,9 @@
                     </tr>
                   </thead>
                   <tbody id="settingsModelList">
-                    <tr><td colspan="3" class="settings-empty-row">暂无模型，请点击下方按钮获取</td></tr>
+                    <tr>
+                      <td colspan="3" class="settings-empty-row">暂无模型，请点击下方按钮获取</td>
+                    </tr>
                   </tbody>
                 </table>
                 <div class="settings-model-actions">
@@ -334,10 +339,7 @@
 
       <div class="ap-footer">
         <span class="ap-footer-hint">支持多种 API 协议</span>
-        <div class="ap-footer-buttons">
-          <button class="settings-btn" id="apCancelBtn">取消</button>
-          <button class="settings-btn" id="apCustomBtn">使用自定义提供商</button>
-        </div>
+        <button class="settings-btn" id="apCancelBtn">取消</button>
       </div>
     </div>
   </div>
@@ -347,4 +349,5 @@
 
   <script type="module" src="/src/main.js"></script>
 </body>
+
 </html>

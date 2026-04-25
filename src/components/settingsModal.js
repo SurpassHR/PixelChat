@@ -8,10 +8,7 @@ const overlay = $('#settingsModalOverlay');
 const AVAILABLE_PROVIDERS = [
   { id: 'openai', name: 'OpenAI', description: 'GPT-4o, DALL-E 等图像生成模型', defaultBase: 'https://api.openai.com/v1', type: 'official' },
   { id: 'google', name: 'Google Gemini', description: 'Gemini 2.0 Flash 图像生成模型', defaultBase: 'https://generativelanguage.googleapis.com/v1beta/openai', type: 'official' },
-  { id: 'anthropic', name: 'Anthropic', description: 'Claude 系列模型', defaultBase: 'https://api.anthropic.com', type: 'official' },
-  { id: 'deepseek', name: 'DeepSeek', description: 'DeepSeek 系列模型', defaultBase: 'https://api.deepseek.com/v1', type: 'official' },
-  { id: 'ollama', name: 'Ollama', description: '本地部署的开源模型', defaultBase: 'http://localhost:11434/v1', type: 'local' },
-  { id: 'one-api', name: 'One API', description: '聚合 API 网关，统一管理多个渠道', defaultBase: 'http://127.0.0.1:8000', type: 'aggregator' }
+  { id: 'custom', name: 'OpenAI Compat', description: '自定义 OpenAI 兼容 API，需要填写完整 base_url', defaultBase: '', type: 'custom' }
 ];
 
 let _activeProvider = '';
@@ -165,7 +162,6 @@ function openAddModal() {
   $('#apSearch').value = '';
   $('#apBody').style.display = '';
   $('#apCustom').style.display = 'none';
-  $('#apCustomBtn').style.display = '';
   renderProviderGrid();
   apOverlay.style.display = 'flex';
 }
@@ -191,7 +187,7 @@ function renderProviderGrid() {
 
   let html = '';
   filtered.forEach(p => {
-    const colors = { openai: '#00a67e', google: '#4285f4', anthropic: '#d4a574', deepseek: '#4f6bf5', ollama: '#fff', 'one-api': '#f59e0b' };
+    const colors = { openai: '#00a67e', google: '#4285f4', custom: '#9ca3af' };
     const color = colors[p.id] || 'var(--accent-dim)';
     html += `<div class="ap-card" data-provider-id="${escapeHtml(p.id)}">
       <div class="ap-card-icon" style="color:${color}">${escapeHtml(p.name.charAt(0))}</div>
@@ -214,6 +210,12 @@ function renderProviderGrid() {
 function handlePresetSelect(id) {
   const preset = AVAILABLE_PROVIDERS.find(p => p.id === id);
   if (!preset) return;
+
+  // For custom provider, open the custom form instead of adding directly
+  if (preset.id === 'custom') {
+    switchToCustom();
+    return;
+  }
 
   const { providers } = getState();
   const name = preset.name;
@@ -242,7 +244,6 @@ function switchToCustom() {
   _addMode = 'custom';
   $('#apBody').style.display = 'none';
   $('#apCustom').style.display = '';
-  $('#apCustomBtn').style.display = 'none';
   $('#apCustomName').value = '';
   $('#apCustomKey').value = '';
   $('#apCustomName').focus();
@@ -252,7 +253,6 @@ function switchBackToGrid() {
   _addMode = 'grid';
   $('#apBody').style.display = '';
   $('#apCustom').style.display = 'none';
-  $('#apCustomBtn').style.display = '';
 }
 
 function handleCustomSubmit() {
@@ -402,7 +402,6 @@ export function initSettingsModal() {
   });
   $('#apCloseBtn').addEventListener('click', closeAddModal);
   $('#apCancelBtn').addEventListener('click', closeAddModal);
-  $('#apCustomBtn').addEventListener('click', switchToCustom);
   $('#apCustomBack').addEventListener('click', switchBackToGrid);
   $('#apCustomSubmit').addEventListener('click', handleCustomSubmit);
   $('#apCustomName').addEventListener('keydown', e => {
