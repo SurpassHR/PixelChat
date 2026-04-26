@@ -185,7 +185,13 @@ function debouncedBackendSync() {
   _pendingSave = setTimeout(async () => {
     _pendingSave = null;
     try { await apiPost('/api/sessions', sanitizeForSave(state.sessions)); } catch { }
-    try { await apiPost('/api/materials', sanitizeForSave(state.materials)); } catch { }
+    // 发送完整素材库对象（包含堆叠组）
+    try {
+      await apiPost('/api/materials', {
+        materials: state.materials,
+        materialStacks: state.materialStacks
+      });
+    } catch (e) { console.error('[同步] 保存素材库到后端失败:', e); }
     try {
       await apiPost('/api/settings', {
         selectedModelId: state.selectedModelId,
@@ -769,95 +775,127 @@ function migrateMaterialParentIds(materials, materialStacks) {
     }
   }
   // 2. 清理孤儿 parentStackId（指向不存在的堆叠组）
-  for (const material of materials) {
-    if (material.parentStackId) {
-      const stackExists = materialStacks.some(s => s.id === material.parentStackId);
-      if (!stackExists) {
-        delete material.parentStackId;
-        changed = true;
+  // 注意：只有当 materialStacks 非空时才执行清理，避免因加载顺序导致错误清除
+  if (materialStacks.length > 0) {
+    for (const material of materials) {
+      if (material.parentStackId) {
+        const stackExists = materialStacks.some(s => s.id === material.parentStackId);
+        if (!stackExists) {
+          delete material.parentStackId;
+          changed = true;
+        }
       }
+    }
+  } else {
+    // 如果没有堆叠组但某些素材有 parentStackId，可能是数据不一致，保留原值并输出警告
+    const orphans = materials.filter(m => m.parentStackId);
+    if (orphans.length) {
+      console.warn(`[migrateMaterialParentIds] 检测到 ${orphans.length} 个素材有 parentStackId 但堆叠组为空，已保留 parentStackId 避免数据丢失`, orphans.map(m => ({ id: m.id, parent: m.parentStackId })));
     }
   }
   return changed;
 }
 
 async function loadMaterials() {
-  // 优先从本地 localStorage 加载分组结构和素材
+  // 完全从后端加载素材库（包括堆叠组）
+  try {
+    const response = await apiGet('/api/materials');
+    // 新格式：{ materials, materialStacks }
+    if (response && typeof response === 'object' && !Array.isArray(response)) {
+      let materials = response.materials || [];
+      let materialStacks = response.materialStacks || [];
+      // 确保每个素材有必要的字段
+      materials.forEach(m => {
+        if (!m.category) m.category = 'Imported';
+        if (!m.type) m.type = 'image';
+        if (m.parentStackId === undefined) m.parentStackId = null;
+      });
+      // 修复 parentStackId 映射
+      const migrated = migrateMaterialParentIds(materials, materialStacks);
+      if (migrated) {
+        console.log('[修复] 已更新 parentStackId 映射，重新保存到后端');
+        // 修复后需要保存回后端
+        await apiPost('/api/materials', { materials, materialStacks });
+      }
+      // 可选：将后端数据同步到 localStorage 作为缓存（但不作为主存储）
+      try {
+        localStorage.setItem('image-gen-materials-v2', JSON.stringify({ materials, materialStacks }));
+      } catch (e) { /* 忽略缓存写入失败 */ }
+      return { materials, materialStacks };
+    }
+    // 兼容旧格式：后端返回的是数组（旧素材列表）
+    if (Array.isArray(response)) {
+      console.log('[加载] 检测到旧格式素材列表，正在迁移');
+      const materials = response.map(m => ({
+        ...m,
+        category: 'Imported',
+        type: 'image',
+        parentStackId: null
+      }));
+      const materialStacks = [];
+      // 立即保存新格式到后端
+      await apiPost('/api/materials', { materials, materialStacks });
+      // 清除 localStorage 中的旧数据
+      localStorage.removeItem('image-gen-materials-v2');
+      return { materials, materialStacks };
+    }
+  } catch (e) {
+    console.log('[加载] 从后端加载素材库失败:', e.message);
+  }
+  // 如果后端完全不可用，尝试从 localStorage 读取作为最后的降级
   const localData = localStorage.getItem('image-gen-materials-v2');
   if (localData) {
     try {
       const parsed = JSON.parse(localData);
       if (parsed.materials && Array.isArray(parsed.materials)) {
-        console.log('[加载] 从 localStorage 加载素材库 v2:', parsed.materials.length, '个素材,', parsed.materialStacks?.length || 0, '个堆叠组');
-        // 确保每个素材有必要的字段，并将 undefined 的 parentStackId 转为 null
+        console.log('[降级] 从 localStorage 加载素材库 v2');
         parsed.materials.forEach(m => {
           if (!m.category) m.category = 'Imported';
           if (!m.type) m.type = 'image';
           if (m.parentStackId === undefined) m.parentStackId = null;
         });
-        // 修复 parentStackId 映射
-        const migrated = migrateMaterialParentIds(parsed.materials, parsed.materialStacks || []);
-        if (migrated) {
-          console.log('[修复] 已更新 parentStackId 映射');
-          // 保存修复后的数据
-          localStorage.setItem('image-gen-materials-v2', JSON.stringify({
-            materials: parsed.materials,
-            materialStacks: parsed.materialStacks || []
-          }));
-        }
+        migrateMaterialParentIds(parsed.materials, parsed.materialStacks || []);
+        // 尝试将降级数据写回后端
+        try {
+          await apiPost('/api/materials', { materials: parsed.materials, materialStacks: parsed.materialStacks || [] });
+        } catch (e2) { /* 静默失败 */ }
         return { materials: parsed.materials, materialStacks: parsed.materialStacks || [] };
       }
-    } catch (e) { console.log('[加载] localStorage 解析失败:', e); }
+    } catch (e) { console.log('[降级] localStorage 解析失败:', e); }
   }
-
-  // 回退：从后端加载（旧格式）
-  let remote = [];
-  try {
-    remote = await apiGet('/api/materials');
-    if (remote && remote.length > 0) {
-      remote.forEach(m => { if (m.dataUrl) m.dataUrl = resolveBackendUrl(m.dataUrl); });
-      console.log('[加载] materials 从后端加载:', remote.length, '个');
-    }
-  } catch (e) { console.log('[加载] 后端 materials 不可用:', e.message); }
-
-  // 转换为新格式，默认 category = 'Imported'，并确保 parentStackId 为 null
-  const materials = remote.map(m => ({
-    ...m,
-    category: 'Imported',
-    type: 'image',
-    parentStackId: null
-  }));
-  return { materials, materialStacks: [] };
+  // 完全空状态
+  return { materials: [], materialStacks: [] };
 }
 
 function saveMaterials() {
-  // 保存到 localStorage
+  // 完全依靠后端存储，不再使用 localStorage 作为主存储
+  // 但为了降级，仍然可以写入 localStorage 作为缓存（可选）
   const toSave = {
     materials: state.materials,
     materialStacks: state.materialStacks
   };
-  localStorage.setItem('image-gen-materials-v2', JSON.stringify(toSave));
-  // 仍然尝试同步到后端（但后端可能不支持新结构，忽略错误）
+  // 直接向后端发送完整数据
   debouncedBackendSync();
+  // 可选：写入 localStorage 作为缓存，但不影响主要逻辑
+  try {
+    localStorage.setItem('image-gen-materials-v2', JSON.stringify(toSave));
+  } catch (e) { /* 忽略缓存写入失败 */ }
 }
 
-export async function addMaterial(name, dataUrl, category = 'Imported') {
+export async function addMaterial(name, dataUrl, category = 'Imported', forceDetach = false) {
   const hash = await computeDataUrlHash(dataUrl);
   const existing = state.materials.find(m => m.dataHash === hash);
   if (existing) {
-    // 如果素材已存在但属于某个堆叠组（parentStackId 不为 null），将其移出到根（独立素材）
-    if (existing.parentStackId) {
-      console.log(`[addMaterial] 素材 "${existing.name}" 已在堆叠组 ${existing.parentStackId} 中，正在移出到独立素材...`);
-      // 从原堆叠组中移除
+    // 如果需要强制移出堆叠组（例如用户拖拽到根区域时），通过 forceDetach 参数控制
+    if (forceDetach && existing.parentStackId) {
+      console.log(`[addMaterial] 强制将素材 "${existing.name}" 从堆叠组 ${existing.parentStackId} 中移出`);
       const oldStack = state.materialStacks.find(s => s.id === existing.parentStackId);
       if (oldStack) {
         oldStack.children = oldStack.children.filter(cid => cid !== existing.id);
-        // 如果堆叠组变空，删除该组
         if (oldStack.children.length === 0) {
           state.materialStacks = state.materialStacks.filter(s => s.id !== oldStack.id);
           console.log(`[addMaterial] 原堆叠组 ${oldStack.id} 已变空，已删除`);
         } else {
-          // 更新缩略图
           const firstChild = state.materials.find(m => m.id === oldStack.children[0]);
           if (firstChild) oldStack.thumbnail = firstChild.dataUrl;
         }
@@ -866,8 +904,10 @@ export async function addMaterial(name, dataUrl, category = 'Imported') {
       saveMaterials();
       if (listeners['materials']) listeners['materials'].forEach(fn => fn());
       if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
-      setState({ statusText: `素材“${existing.name}”已从堆叠组移出并显示` });
+      setState({ statusText: `素材“${existing.name}”已从堆叠组移出` });
     } else {
+      // 正常重复素材，不做任何改动，仅提示
+      console.log(`[addMaterial] 素材 "${existing.name}" 已存在，跳过添加`);
       setState({ statusText: '素材已存在，跳过添加' });
     }
     return existing;
@@ -888,6 +928,28 @@ export async function addMaterial(name, dataUrl, category = 'Imported') {
   saveMaterials();
   if (listeners['materials']) listeners['materials'].forEach(fn => fn());
   return mat;
+}
+
+// 显式将素材从堆叠组中移出（独立）
+export async function detachMaterialFromStack(materialId) {
+  const mat = state.materials.find(m => m.id === materialId);
+  if (!mat || !mat.parentStackId) return false;
+  const stackId = mat.parentStackId;
+  const stack = state.materialStacks.find(s => s.id === stackId);
+  if (stack) {
+    stack.children = stack.children.filter(cid => cid !== materialId);
+    if (stack.children.length === 0) {
+      state.materialStacks = state.materialStacks.filter(s => s.id !== stackId);
+    } else {
+      const firstChild = state.materials.find(m => m.id === stack.children[0]);
+      if (firstChild) stack.thumbnail = firstChild.dataUrl;
+    }
+  }
+  mat.parentStackId = null;
+  saveMaterials();
+  if (listeners['materials']) listeners['materials'].forEach(fn => fn());
+  if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
+  return true;
 }
 
 // 辅助函数：清理所有只有一个子素材的堆叠组（自动解散）

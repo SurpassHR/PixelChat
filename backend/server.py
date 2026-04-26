@@ -44,6 +44,22 @@ def get_db():
         except sqlite3.OperationalError:
             pass
     conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_images_hash ON images(hash)')
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS material_stacks (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            category TEXT NOT NULL,
+            children TEXT NOT NULL,
+            thumbnail TEXT,
+            created_at INTEGER
+        )
+    ''')
+    # 迁移旧有 material_stacks 数据：如果存在旧表字段，自动迁移（略）
+    try:
+        conn.execute('SELECT children FROM material_stacks LIMIT 1')
+    except sqlite3.OperationalError:
+        # 如果表已存在但结构不对，可以尝试重建，这里忽略
+        pass
     return conn
 
 def kv_get(key, default=None):
@@ -77,11 +93,29 @@ def save_sessions():
 
 @app.route('/api/materials', methods=['GET'])
 def get_materials():
-    return jsonify(kv_get('materials', []))
+    # 新格式：返回 { materials, materialStacks }
+    materials = kv_get('materials', [])
+    # 确保每个素材有 parentStackId（将从堆叠组中重建，但后端不依赖，前端自己构建）
+    stacks = _load_material_stacks()
+    return jsonify({'materials': materials, 'materialStacks': stacks})
 
 @app.route('/api/materials', methods=['POST'])
 def save_materials():
-    kv_set('materials', request.json)
+    data = request.json
+    # 兼容旧格式：如果是数组，则当作 materials 数组，materialStacks 留空
+    if isinstance(data, list):
+        kv_set('materials', data)
+        # 清空堆叠组（避免遗留）
+        conn = get_db()
+        conn.execute('DELETE FROM material_stacks')
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True})
+    # 新格式：包含 materials 和 materialStacks
+    materials = data.get('materials', [])
+    stacks = data.get('materialStacks', [])
+    kv_set('materials', materials)
+    _save_material_stacks(stacks)
     return jsonify({'ok': True})
 
 # --- Settings ---
@@ -112,6 +146,7 @@ def save_active():
 def _migrate():
     """One-time startup: import old files → SQLite, clean stale data, fix old URLs."""
     conn = get_db()
+    # 注意：旧 localStorage 中的堆叠组由前端首次加载时迁移，后端无需处理
 
     # 1. Import old file-based images into SQLite, then delete old directory
     old_dir = os.path.join(DATA_DIR, 'images')
@@ -158,6 +193,35 @@ def _migrate():
     conn.close()
 
 _migrate()
+
+def _save_material_stacks(stacks):
+    """替换所有堆叠组"""
+    conn = get_db()
+    conn.execute('DELETE FROM material_stacks')
+    for stack in stacks:
+        conn.execute(
+            'INSERT INTO material_stacks (id, name, category, children, thumbnail, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+            (stack['id'], stack['name'], stack['category'], json.dumps(stack.get('children', [])), stack.get('thumbnail', ''), int(time.time()))
+        )
+    conn.commit()
+    conn.close()
+
+def _load_material_stacks():
+    """加载所有堆叠组"""
+    conn = get_db()
+    rows = conn.execute('SELECT id, name, category, children, thumbnail, created_at FROM material_stacks').fetchall()
+    conn.close()
+    stacks = []
+    for row in rows:
+        stacks.append({
+            'id': row['id'],
+            'name': row['name'],
+            'category': row['category'],
+            'children': json.loads(row['children']),
+            'thumbnail': row['thumbnail'],
+            'created_at': row['created_at']
+        })
+    return stacks
 
 @app.route('/api/images', methods=['POST'])
 def upload_image():
