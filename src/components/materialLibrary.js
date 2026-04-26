@@ -364,6 +364,7 @@ let currentTab = 'Imported';         // 'Imported' or 'Generated'
 let searchQuery = '';
 let expandedStacks = new Map();       // 堆叠组展开状态
 let lastClickedIndex = -1;            // 用于 Shift 多选
+let isDragging = false;               // 拖拽标志，防止拖拽后误触发点击事件
 
 // DOM 元素引用
 let sidebarRoot = null;               // 整个侧边栏根节点
@@ -425,7 +426,7 @@ function render() {
     if (items.length === 0) {
         listHtml = `<div class="mat2-empty">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16v16H4z"/><path d="M9 9h6v6H9z"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="15" x2="4" y2="15"/></svg>
-            <p>Empty Folder</p>
+            <p>暂无素材</p>
         </div>`;
     } else {
         listHtml = renderItemsList(items);
@@ -470,15 +471,15 @@ function renderItemsList(items, nestedLevel = 0) {
                 <div class="mat2-info">
                     <div class="mat2-name ${isSelected ? 'selected' : ''}">${escapeHtml(item.name)}</div>
                     <div class="mat2-meta">
-                        <span class="mat2-type ${isSelected ? 'selected' : ''}">${isStack ? 'stack' : item.type || 'image'}</span>
+                        <span class="mat2-type ${isSelected ? 'selected' : ''}">${isStack ? '堆叠组' : item.type || '图片'}</span>
                     </div>
                 </div>
                 <div class="mat2-actions">
                     ${isStack ? `
-                        <button class="mat2-action-btn mat2-ungroup-btn" data-action="ungroup" data-id="${item.id}" title="Ungroup">
+                        <button class="mat2-action-btn mat2-ungroup-btn" data-action="ungroup" data-id="${item.id}" title="解散组">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="8" y1="2" x2="8" y2="22"/><line x1="16" y1="2" x2="16" y2="22"/></svg>
                         </button>
-                        <button class="mat2-expand-btn" data-action="toggle-stack" data-id="${item.id}" title="${isExpanded ? 'Collapse' : 'Expand'}">
+                        <button class="mat2-expand-btn" data-action="toggle-stack" data-id="${item.id}" title="${isExpanded ? '收起' : '展开'}">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 ${isExpanded ? '<polyline points="6 9 12 15 18 9"></polyline>' : '<polyline points="9 18 15 12 9 6"></polyline>'}
                             </svg>
@@ -511,12 +512,112 @@ function escapeHtml(str) {
 }
 
 // ============================================================
-// 5. 事件处理（完全模仿 React 组件的行为）
+// 5. 新增：图片详情模态框
+// ============================================================
+function findItemDetailsById(id) {
+    const { materials, materialStacks } = getState();
+    const material = materials.find(m => m.id === id);
+    if (material) return material;
+    const stack = materialStacks.find(s => s.id === id);
+    if (stack) return { ...stack, isStack: true };
+    return null;
+}
+
+function openMaterialDetails(id) {
+    const item = findItemDetailsById(id);
+    if (!item) return;
+
+    const isStack = !!item.isStack;
+    let imageUrl = '';
+    let title = item.name;
+    let contentHtml = '';
+
+    if (isStack) {
+        imageUrl = item.thumbnail || (item.children?.[0]?.dataUrl) || '';
+        contentHtml = `
+            <div style="text-align: center; max-width: 500px; margin: 0 auto;">
+                <div style="border-radius: 12px; overflow: hidden; margin-bottom: 16px;">
+                    <img src="${imageUrl}" style="width: 100%; max-height: 60vh; object-fit: contain; background: #000;" />
+                </div>
+                <h3 style="margin: 0 0 4px; font-size: 18px;">${escapeHtml(title)}</h3>
+                <p style="margin: 0 0 12px; color: #9ca3af;">堆叠组 (${item.children?.length || 0} 个项目)</p>
+                <div style="display: flex; gap: 12px; justify-content: center;">
+                    <button class="modal-close-btn" style="padding: 6px 12px; background: #3b82f6; border: none; border-radius: 6px; color: white; cursor: pointer;">关闭</button>
+                </div>
+            </div>
+        `;
+    } else {
+        imageUrl = item.dataUrl || item.imageUrl;
+        contentHtml = `
+            <div style="text-align: center; max-width: 500px; margin: 0 auto;">
+                <div style="border-radius: 12px; overflow: hidden; margin-bottom: 16px;">
+                    <img src="${imageUrl}" style="width: 100%; max-height: 60vh; object-fit: contain; background: #000;" />
+                </div>
+                <h3 style="margin: 0 0 4px; font-size: 18px;">${escapeHtml(title)}</h3>
+                <p style="margin: 0 0 4px; color: #9ca3af;">类型：${item.type || '图片'}</p>
+                <p style="margin: 0 0 12px; color: #9ca3af;">ID：${item.id}</p>
+                <div style="display: flex; gap: 12px; justify-content: center;">
+                    <button class="modal-close-btn" style="padding: 6px 12px; background: #3b82f6; border: none; border-radius: 6px; color: white; cursor: pointer;">关闭</button>
+                </div>
+            </div>
+        `;
+    }
+
+    const modalOverlay = document.createElement('div');
+    modalOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.8);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        backdrop-filter: blur(4px);
+    `;
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `
+        background-color: #1e1e1e;
+        border-radius: 16px;
+        padding: 24px;
+        max-width: 90vw;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+        border: 1px solid #333;
+    `;
+    modalContent.innerHTML = contentHtml;
+    modalOverlay.appendChild(modalContent);
+    document.body.appendChild(modalOverlay);
+
+    const closeModal = () => modalOverlay.remove();
+    modalOverlay.querySelector('.modal-close-btn')?.addEventListener('click', closeModal);
+    modalOverlay.addEventListener('click', (e) => {
+        if (e.target === modalOverlay) closeModal();
+    });
+}
+
+// ============================================================
+// 6. 事件处理（完全模仿 React 组件的行为）
 // ============================================================
 function handleItemClick(e, id, isStack, parentStackId) {
     e.stopPropagation();
+    // 如果正在拖拽，忽略本次点击
+    if (isDragging) {
+        isDragging = false;
+        return;
+    }
     // 如果点击在按钮上，忽略选择
     if (e.target.closest('.mat2-action-btn') || e.target.closest('.mat2-expand-btn')) return;
+    
+    // 左键单击打开图片详情（无修饰键）
+    if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        openMaterialDetails(id);
+        return;
+    }
+
     if (e.ctrlKey || e.metaKey) {
         // 多选切换
         if (selectedMaterialIds.includes(id)) {
@@ -537,7 +638,6 @@ function handleItemClick(e, id, isStack, parentStackId) {
             selectedMaterialIds = Array.from(newSet);
         }
     } else {
-        // 普通单击，仅选中当前
         selectedMaterialIds = [id];
     }
     // 更新 lastClickedIndex
@@ -548,15 +648,28 @@ function handleItemClick(e, id, isStack, parentStackId) {
 }
 
 function handleDragStart(e, id, parentStackId = null) {
-    if (!selectedMaterialIds.includes(id)) {
-        // 如果拖拽的项不在选中集合，则只拖拽这一项
-        selectedMaterialIds = [id];
-        render();
+    // 设置拖拽标志
+    isDragging = true;
+    
+    // 如果当前素材在选中集中且选中集长度大于1，则拖拽整个选中集；否则只拖拽当前素材
+    if (selectedMaterialIds.includes(id) && selectedMaterialIds.length > 1) {
+        dragSourceIds = [...selectedMaterialIds];
+    } else {
+        dragSourceIds = [id];
     }
-    dragSourceIds = [...selectedMaterialIds];
     dragSourceParentStackId = parentStackId;
     e.dataTransfer.setData('text/plain', JSON.stringify({ sourceIds: dragSourceIds, parentStackId }));
     e.dataTransfer.effectAllowed = 'move';
+    
+    // 设置自定义拖拽镜像
+    const dragImage = document.createElement('div');
+    const count = dragSourceIds.length;
+    dragImage.textContent = `${count} 个素材`;
+    dragImage.style.position = 'absolute';
+    dragImage.style.top = '-1000px';
+    document.body.appendChild(dragImage);
+    e.dataTransfer.setDragImage(dragImage, 0, 0);
+    setTimeout(() => document.body.removeChild(dragImage), 0);
 }
 
 function handleDragOver(e, targetId) {
@@ -645,6 +758,93 @@ function handleToggleStack(stackId) {
     render();
 }
 
+function handleContextMenu(e, id) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const item = findItemDetailsById(id);
+    if (!item) return;
+
+    // 移除已存在的菜单
+    const existingMenu = document.querySelector('.custom-context-menu');
+    if (existingMenu) existingMenu.remove();
+
+    const menu = document.createElement('div');
+    menu.className = 'custom-context-menu';
+    menu.style.cssText = `
+        position: fixed;
+        top: ${e.clientY}px;
+        left: ${e.clientX}px;
+        background-color: #2d2d2d;
+        border-radius: 6px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 10000;
+        min-width: 160px;
+        overflow: hidden;
+        backdrop-filter: blur(8px);
+        border: 1px solid #4a4a4a;
+    `;
+
+    const createMenuItem = (label, icon, action) => {
+        const div = document.createElement('div');
+        div.style.cssText = `
+            padding: 8px 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #e0e0e0;
+            transition: background 0.2s;
+        `;
+        div.innerHTML = `${icon} ${label}`;
+        div.addEventListener('mouseenter', () => div.style.backgroundColor = '#3a3a3a');
+        div.addEventListener('mouseleave', () => div.style.backgroundColor = 'transparent');
+        div.addEventListener('click', async () => {
+            await action();
+            menu.remove();
+        });
+        return div;
+    };
+
+    // 删除选项
+    const deleteIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`;
+    menu.appendChild(createMenuItem('删除', deleteIcon, async () => {
+        await removeMaterial(id);
+        showToast('已删除', 'success');
+        render();
+    }));
+
+    // 复制链接选项
+    const linkIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>`;
+    menu.appendChild(createMenuItem('复制图片链接', linkIcon, async () => {
+        const url = item.dataUrl || item.imageUrl;
+        if (url) {
+            await navigator.clipboard.writeText(url);
+            showToast('链接已复制', 'success');
+        } else {
+            showToast('无法复制链接', 'error');
+        }
+    }));
+
+    // 详情选项
+    const detailsIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><circle cx="12" cy="8" r="0.5" fill="currentColor" stroke="none"></circle></svg>`;
+    menu.appendChild(createMenuItem('详情', detailsIcon, async () => {
+        openMaterialDetails(id);
+    }));
+
+    document.body.appendChild(menu);
+
+    // 点击其他地方时关闭菜单
+    const closeMenu = (e) => {
+        if (!menu.contains(e.target)) {
+            menu.remove();
+            document.removeEventListener('click', closeMenu);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+}
+
 function findItemById(id) {
     const { materials, materialStacks } = getState();
     const fromMat = materials.find(m => m.id === id);
@@ -674,6 +874,7 @@ function bindItemEvents() {
             e.dataTransfer.setData('text/plain', JSON.stringify({ sourceIds: dragSourceIds, parentStackId: dragSourceParentStackId }));
         });
         row.addEventListener('dragstart', (e) => handleDragStart(e, id, parentStack));
+        row.addEventListener('dragend', () => { isDragging = false; });
         row.removeEventListener('dragover', (e) => handleDragOver(e, id));
         row.addEventListener('dragover', (e) => handleDragOver(e, id));
         row.removeEventListener('dragleave', handleDragLeave);
@@ -686,6 +887,9 @@ function bindItemEvents() {
             const isStackTarget = row.dataset.isStack === 'true';
             handleDrop(e, id, isStackTarget);
         });
+        // 右键菜单
+        row.removeEventListener('contextmenu', (e) => handleContextMenu(e, id));
+        row.addEventListener('contextmenu', (e) => handleContextMenu(e, id));
     });
     // 绑定按钮事件 (使用委托)
     listContainer.querySelectorAll('.mat2-ungroup-btn').forEach(btn => {
@@ -746,7 +950,7 @@ function setupRootDropTarget() {
 }
 
 // ============================================================
-// 6. 初始化 UI 结构（完全按照 React 组件的布局）
+// 7. 初始化 UI 结构（完全按照 React 组件的布局）
 // ============================================================
 function buildDOM() {
     // 查找原有的 material-section 容器，如果没有则创建
@@ -769,21 +973,21 @@ function buildDOM() {
     sidebar.innerHTML = `
         <div class="mat2-header">
             <div class="mat2-title">
-                Media Assets
+                素材库
                 <span class="mat2-badge" style="display:none;">0</span>
             </div>
-            <button id="addMaterialBtn2" class="mat2-action-btn" title="Add Material">+</button>
+            <button id="addMaterialBtn2" class="mat2-action-btn" title="添加素材">+</button>
         </div>
         <div class="mat2-search">
             <div class="relative">
                 <svg class="mat2-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="10" cy="10" r="7"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
-                <input type="text" class="mat2-search-input" placeholder="Search..." id="materialSearchInput2">
+                <input type="text" class="mat2-search-input" placeholder="搜索..." id="materialSearchInput2">
             </div>
         </div>
         <div class="mat2-tabs">
             <div class="mat2-tab-group">
-                <button class="mat2-tab" data-tab="Generated">Generated</button>
-                <button class="mat2-tab active" data-tab="Imported">Imported</button>
+                <button class="mat2-tab" data-tab="Generated">生成</button>
+                <button class="mat2-tab active" data-tab="Imported">导入</button>
             </div>
         </div>
         <div class="mat2-list-container" id="materialListContainer2"></div>
@@ -854,7 +1058,7 @@ function buildDOM() {
 }
 
 // ============================================================
-// 7. 对外暴露的初始化函数（兼容现有调用）
+// 8. 对外暴露的初始化函数（兼容现有调用）
 // ============================================================
 export async function initMaterialLibrary() {
     buildDOM();
