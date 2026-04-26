@@ -1123,7 +1123,8 @@ async function _syncCanvasImagesToMaterialLibrary() {
             // 检查是否可能已存在（通过 URL 或后续 hash），但为了避免复杂，我们仍然调用 addMaterial，
             // 但 addMaterial 已修改为不会自动破坏堆叠组，且会跳过重复。不过为了性能，我们可以提前过滤：
             // 对于已经是本地 /api/images/ 的 URL，可以尝试推断 hash？为了简单，仍调用 addMaterial，因为 addMaterial 现在是安全的。
-            let name = item.prompt ? item.prompt.slice(0, 30) + (item.prompt.length > 30 ? '...' : '') : `image_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
+            // 使用完整 prompt 作为素材名，避免截断
+            let name = item.prompt ? item.prompt : `image_${Date.now()}_${Math.random().toString(36).substr(2,5)}`;
             imagesToAdd.push({ name, url: item.imageUrl, category });
         }
     }
