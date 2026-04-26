@@ -882,7 +882,7 @@ function saveMaterials() {
   } catch (e) { /* 忽略缓存写入失败 */ }
 }
 
-export async function addMaterial(name, dataUrl, category = 'Imported', forceDetach = false) {
+export async function addMaterial(name, dataUrl, category = 'Imported', forceDetach = false, prompt = null, refImages = []) {
   const hash = await computeDataUrlHash(dataUrl);
   const existing = state.materials.find(m => m.dataHash === hash);
   if (existing) {
@@ -910,6 +910,10 @@ export async function addMaterial(name, dataUrl, category = 'Imported', forceDet
       console.log(`[addMaterial] 素材 "${existing.name}" 已存在，跳过添加`);
       setState({ statusText: '素材已存在，跳过添加' });
     }
+    // 即使素材已存在，如果传入了新的 prompt/refImages 且现有素材缺失，则更新
+    if (existing.prompt === undefined && prompt) existing.prompt = prompt;
+    if ((existing.refImages === undefined || existing.refImages.length === 0) && refImages && refImages.length) existing.refImages = refImages;
+    if (existing.prompt !== undefined || existing.refImages !== undefined) saveMaterials();
     return existing;
   }
 
@@ -922,7 +926,9 @@ export async function addMaterial(name, dataUrl, category = 'Imported', forceDet
     addedAt: Date.now(),
     category,          // 'Generated' 或 'Imported'
     type: 'image',
-    parentStackId: null   // 所属堆叠组 ID，若为 null 表示独立素材
+    parentStackId: null,   // 所属堆叠组 ID，若为 null 表示独立素材
+    prompt: prompt || null,   // 提示词（可能为空）
+    refImages: refImages || [] // 参考图数组
   };
   state.materials.push(mat);
   saveMaterials();
