@@ -1,5 +1,6 @@
 import { getState, setState, subscribe, addMaterial, removeMaterial, createMaterialStack, ungroupMaterialStack, moveMaterialToStack, getFlattenedMaterialItems } from '../store.js';
 import { showToast } from '../toast.js';
+import { openImageDetail } from './modal.js';
 
 // ============================================================
 // 1. 注入全局样式（模拟 Tailwind 的设计系统）
@@ -614,7 +615,14 @@ function handleItemClick(e, id, isStack, parentStackId) {
     
     // 左键单击打开图片详情（无修饰键）
     if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
-        openMaterialDetails(id);
+        const item = findItemDetailsById(id);
+        if (item && !item.isStack) {
+            // 普通图片：复用 canvas 的图片详情模态框
+            openImageDetail({ imageUrl: item.dataUrl || item.imageUrl, prompt: null, refImages: [] });
+        } else {
+            // 堆叠组：使用原有的组详情模态框
+            openMaterialDetails(id);
+        }
         return;
     }
 
@@ -830,7 +838,14 @@ function handleContextMenu(e, id) {
     // 详情选项
     const detailsIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><circle cx="12" cy="8" r="0.5" fill="currentColor" stroke="none"></circle></svg>`;
     menu.appendChild(createMenuItem('详情', detailsIcon, async () => {
-        openMaterialDetails(id);
+        const item = findItemDetailsById(id);
+        if (item && !item.isStack) {
+            // 普通图片：复用 canvas 的图片详情模态框
+            openImageDetail({ imageUrl: item.dataUrl || item.imageUrl, prompt: null, refImages: [] });
+        } else {
+            // 堆叠组：使用原有的组详情模态框
+            openMaterialDetails(id);
+        }
     }));
 
     document.body.appendChild(menu);
