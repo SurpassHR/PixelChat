@@ -620,7 +620,7 @@ function handleItemClick(e, id, isStack, parentStackId) {
             // 普通图片：复用 canvas 的图片详情模态框，并传递提示词和参考图
             openImageDetail({ 
                 imageUrl: item.dataUrl || item.imageUrl, 
-                prompt: item.prompt || null, 
+                prompt: item.prompt || item.name || null, 
                 refImages: item.refImages || [] 
             });
         } else {
@@ -847,7 +847,7 @@ function handleContextMenu(e, id) {
             // 普通图片：复用 canvas 的图片详情模态框，并传递提示词和参考图
             openImageDetail({ 
                 imageUrl: item.dataUrl || item.imageUrl, 
-                prompt: item.prompt || null, 
+                prompt: item.prompt || item.name || null, 
                 refImages: item.refImages || [] 
             });
         } else {
