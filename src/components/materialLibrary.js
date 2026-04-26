@@ -363,6 +363,9 @@ if (!document.getElementById('material-library-styles')) {
 // ============================================================
 // 2. 全局状态 (模仿 React 组件的内部状态)
 // ============================================================
+// localStorage 持久化 key
+const STORAGE_TAB_KEY = 'material-library-current-tab';
+
 let selectedMaterialIds = [];        // 选中的素材 ID 列表（独立、堆叠组、子项均可选）
 let dragSourceIds = [];              // 拖拽的源 ID 列表
 let dragOverTargetId = null;         // 当前高亮的目标 ID
@@ -1016,7 +1019,7 @@ function buildDOM() {
         <div class="mat2-tabs">
             <div class="mat2-tab-group">
                 <button class="mat2-tab" data-tab="Generated">生成</button>
-                <button class="mat2-tab active" data-tab="Imported">导入</button>
+                <button class="mat2-tab" data-tab="Imported">导入</button>
             </div>
         </div>
         <div class="mat2-list-container" id="materialListContainer2"></div>
@@ -1032,6 +1035,21 @@ function buildDOM() {
     const generatedTab = sidebar.querySelector('.mat2-tab[data-tab="Generated"]');
     const importedTab = sidebar.querySelector('.mat2-tab[data-tab="Imported"]');
     selectionBadge = sidebar.querySelector('.mat2-badge');
+    // 读取上次打开的标签页
+    const savedTab = localStorage.getItem(STORAGE_TAB_KEY);
+    if (savedTab === 'Generated' || savedTab === 'Imported') {
+        currentTab = savedTab;
+    } else {
+        currentTab = 'Imported';
+    }
+    // 设置当前标签的激活状态
+    if (currentTab === 'Generated') {
+        generatedTab.classList.add('active');
+        importedTab.classList.remove('active');
+    } else {
+        generatedTab.classList.remove('active');
+        importedTab.classList.add('active');
+    }
     // 绑定事件
     searchInput.addEventListener('input', (e) => {
         searchQuery = e.target.value;
@@ -1042,6 +1060,7 @@ function buildDOM() {
         generatedTab.classList.add('active');
         importedTab.classList.remove('active');
         selectedMaterialIds = [];
+        localStorage.setItem(STORAGE_TAB_KEY, 'Generated');
         render();
     });
     importedTab.addEventListener('click', () => {
@@ -1049,6 +1068,7 @@ function buildDOM() {
         importedTab.classList.add('active');
         generatedTab.classList.remove('active');
         selectedMaterialIds = [];
+        localStorage.setItem(STORAGE_TAB_KEY, 'Imported');
         render();
     });
     addBtn.addEventListener('click', () => {
