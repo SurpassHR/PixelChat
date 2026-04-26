@@ -350,6 +350,12 @@ if (!document.getElementById('material-library-styles')) {
         .mat2-animate-in {
             animation: fade-in 150ms forwards, slide-in 150ms forwards;
         }
+
+        /* 移除 material-section 和 mat2-root 的默认内边距 */
+        .material-section.mat2-root,
+        .mat2-root {
+            padding: 0 !important;
+        }
     `;
     document.head.appendChild(styleSheet);
 }
