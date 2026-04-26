@@ -621,9 +621,12 @@ function handleItemClick(e, id, isStack, parentStackId) {
     }
     // 如果点击在按钮上，忽略选择
     if (e.target.closest('.mat2-action-btn') || e.target.closest('.mat2-expand-btn')) return;
-    
-    // 左键单击打开图片详情（无修饰键）
-    if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+
+    // 判断点击是否在缩略图区域内
+    const isThumbClick = !!e.target.closest('.mat2-thumb-wrapper, .mat2-thumb');
+
+    if (isThumbClick) {
+        // 缩略图点击 → 打开详情
         const item = findItemDetailsById(id);
         if (item && !item.isStack) {
             // 普通图片：复用 canvas 的图片详情模态框，并传递提示词和参考图
@@ -639,6 +642,7 @@ function handleItemClick(e, id, isStack, parentStackId) {
         return;
     }
 
+    // 右侧区域点击 → 执行选中逻辑（不管是否有修饰键，都按照选中逻辑处理）
     if (e.ctrlKey || e.metaKey) {
         // 多选切换
         if (selectedMaterialIds.includes(id)) {
@@ -659,6 +663,7 @@ function handleItemClick(e, id, isStack, parentStackId) {
             selectedMaterialIds = Array.from(newSet);
         }
     } else {
+        // 无修饰键：清空其他，仅选中当前素材
         selectedMaterialIds = [id];
     }
     // 更新 lastClickedIndex
@@ -847,6 +852,35 @@ function handleContextMenu(e, id) {
             showToast('无法复制链接', 'error');
         }
     }));
+
+    // 放入堆叠组选项（仅对普通素材显示，不对堆叠组显示）
+    if (!item.isStack) {
+        const stackIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><line x1="8" y1="2" x2="8" y2="22"/><line x1="16" y1="2" x2="16" y2="22"/></svg>`;
+        menu.appendChild(createMenuItem('放入堆叠组', stackIcon, async () => {
+            // 确定要放入的素材ID列表
+            let targetIds = [];
+            if (selectedMaterialIds.includes(id) && selectedMaterialIds.length > 1) {
+                targetIds = [...selectedMaterialIds];
+            } else {
+                targetIds = [id];
+            }
+            // 过滤掉已经是堆叠组的素材
+            const { materialStacks } = getState();
+            const stackIds = new Set(materialStacks.map(s => s.id));
+            targetIds = targetIds.filter(uid => !stackIds.has(uid));
+            if (targetIds.length === 0) {
+                showToast('无法将堆叠组放入另一堆叠组', 'error');
+                return;
+            }
+            const newStack = createMaterialStack(targetIds, currentTab, '堆叠组');
+            if (newStack) {
+                showToast(`已创建堆叠组并放入 ${targetIds.length} 个素材`, 'success');
+                render();
+            } else {
+                showToast('创建失败', 'error');
+            }
+        }));
+    }
 
     // 详情选项
     const detailsIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><circle cx="12" cy="8" r="0.5" fill="currentColor" stroke="none"></circle></svg>`;
