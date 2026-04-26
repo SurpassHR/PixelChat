@@ -617,8 +617,12 @@ function handleItemClick(e, id, isStack, parentStackId) {
     if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
         const item = findItemDetailsById(id);
         if (item && !item.isStack) {
-            // 普通图片：复用 canvas 的图片详情模态框
-            openImageDetail({ imageUrl: item.dataUrl || item.imageUrl, prompt: null, refImages: [] });
+            // 普通图片：复用 canvas 的图片详情模态框，并传递提示词和参考图
+            openImageDetail({ 
+                imageUrl: item.dataUrl || item.imageUrl, 
+                prompt: item.prompt || null, 
+                refImages: item.refImages || [] 
+            });
         } else {
             // 堆叠组：使用原有的组详情模态框
             openMaterialDetails(id);
@@ -840,8 +844,12 @@ function handleContextMenu(e, id) {
     menu.appendChild(createMenuItem('详情', detailsIcon, async () => {
         const item = findItemDetailsById(id);
         if (item && !item.isStack) {
-            // 普通图片：复用 canvas 的图片详情模态框
-            openImageDetail({ imageUrl: item.dataUrl || item.imageUrl, prompt: null, refImages: [] });
+            // 普通图片：复用 canvas 的图片详情模态框，并传递提示词和参考图
+            openImageDetail({ 
+                imageUrl: item.dataUrl || item.imageUrl, 
+                prompt: item.prompt || null, 
+                refImages: item.refImages || [] 
+            });
         } else {
             // 堆叠组：使用原有的组详情模态框
             openMaterialDetails(id);
