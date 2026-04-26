@@ -16,6 +16,50 @@ const container = document.getElementById('canvasContainer');
 const surface = document.getElementById('canvasSurface');
 const placeholder = document.getElementById('canvasPlaceholder');
 
+// --- 计时器更新 ---
+let _timerInterval = null;
+
+function updateTimers() {
+  const { canvasItems } = getState();
+  // 仅当有生成中的项时才更新
+  const hasGenerating = canvasItems.some(item => item.generating === true);
+  if (!hasGenerating) {
+    if (_timerInterval) {
+      clearInterval(_timerInterval);
+      _timerInterval = null;
+    }
+    return;
+  }
+
+  const now = Date.now();
+  const timerElements = document.querySelectorAll('.gen-timer');
+  timerElements.forEach(el => {
+    const itemId = el.dataset.itemId;
+    if (!itemId) return;
+    const item = canvasItems.find(i => i.itemId === itemId);
+    if (!item || !item.startTime) return;
+    const elapsed = Math.floor((now - item.startTime) / 1000);
+    const minutes = Math.floor(elapsed / 60);
+    const seconds = elapsed % 60;
+    el.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  });
+}
+
+function startTimerUpdates() {
+  if (_timerInterval) return;
+  _timerInterval = setInterval(() => {
+    updateTimers();
+  }, 1000);
+}
+
+// 停止所有计时器（用于页面卸载）
+function stopTimerUpdates() {
+  if (_timerInterval) {
+    clearInterval(_timerInterval);
+    _timerInterval = null;
+  }
+}
+
 // --- Render ---
 
 export function renderCanvas() {
@@ -79,7 +123,8 @@ export function renderCanvas() {
         '<div class="gen-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></div>' +
         '<div class="gen-label">正在生成...</div>' +
         '<div class="gen-progress"><div class="gen-progress-bar"></div></div>' +
-        '<button class="gen-cancel" data-item-id="' + item.itemId + '" title="取消生成">×</button>';
+        '<button class="gen-cancel" data-item-id="' + item.itemId + '" title="取消生成">×</button>' +
+        '<div class="gen-timer" data-item-id="' + item.itemId + '">00:00</div>';
     } else if (item.status === 'ok') {
       if (item.type === 'stack') {
         // 渲染堆叠组
@@ -800,7 +845,18 @@ export function initCanvas() {
   setupOverlapDetection();
   setupDragMerge();
 
-  subscribe('canvasItems', renderCanvas);
+  // 监听画布项变化，启动或停止计时器
+  let isTimerSetup = false;
+  subscribe('canvasItems', () => {
+    const { canvasItems } = getState();
+    const hasGenerating = canvasItems.some(item => item.generating === true);
+    if (hasGenerating) {
+      startTimerUpdates();
+    } else {
+      stopTimerUpdates();
+    }
+    renderCanvas();
+  });
   subscribe('selectedItemIds', () => {
     const ids = getState().selectedItemIds;
     $$('.canvas-item').forEach(el => {
@@ -808,5 +864,15 @@ export function initCanvas() {
     });
   });
 
+  // 页面关闭时停止定时器
+  window.addEventListener('beforeunload', () => {
+    stopTimerUpdates();
+  });
+
   renderCanvas();
+  // 初始检查是否需要启动定时器
+  const { canvasItems } = getState();
+  if (canvasItems.some(item => item.generating === true)) {
+    startTimerUpdates();
+  }
 }

@@ -431,6 +431,7 @@ export function addGeneratingPlaceholder(prompt, refImages, taskId) {
     refImages: refImages || [],
     generating: true,
     status: 'generating',
+    startTime: Date.now(),
     error: '',
     type: 'image'
   };
