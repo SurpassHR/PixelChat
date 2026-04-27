@@ -75,15 +75,31 @@ async function fetchModels() {
 }
 
 function updateModelDisplay(id) {
-  const display = $('#triggerModelDisplay');
-  if (display) display.textContent = id || '未选择';
-  const badge = $('#triggerBatchBadge');
-  if (badge) {
-    const { batchSize } = getState();
-    badge.textContent = '×' + (batchSize || 1);
-  }
-  const val = $('#dropdownModelValue');
-  if (val) val.textContent = id || '-';
+  const { batchSize, aspectRatio } = getState();
+
+  // 胶囊栏中的模型标签
+  const tagName = $('#modelTagName');
+  if (tagName) tagName.textContent = id || '未选择';
+
+  // 弹出面板中的模型名
+  const popoverName = $('#popoverModelName');
+  if (popoverName) popoverName.textContent = id || '未选择';
+
+  // 倍数显示
+  const tagMult = $('#modelTagMult');
+  if (tagMult) tagMult.textContent = '×' + (batchSize || 1);
+
+  // 比例显示
+  const tagRatio = $('#modelTagRatio');
+  if (tagRatio) tagRatio.textContent = aspectRatio || '1:1';
+
+  // 兼容旧元素（如果还存在）
+  const legacyDisplay = $('#triggerModelDisplay');
+  if (legacyDisplay) legacyDisplay.textContent = id || '未选择';
+  const legacyBadge = $('#triggerBatchBadge');
+  if (legacyBadge) legacyBadge.textContent = '×' + (batchSize || 1);
+  const legacyVal = $('#dropdownModelValue');
+  if (legacyVal) legacyVal.textContent = id || '-';
 }
 
 export { selectModel, fetchModels, updateModelDisplay };

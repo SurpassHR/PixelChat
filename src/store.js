@@ -18,7 +18,8 @@ const state = {
   viewport: { panX: 0, panY: 0, zoom: 1 },
   statusText: '就绪',
   generating: false,
-  batchSize: 1
+  batchSize: 1,
+  aspectRatio: '1:1'
 };
 
 // --------------------------------------------------------------
@@ -87,7 +88,7 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
-  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial) {
+  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'aspectRatio' in partial) {
     saveSettings();
   }
   for (const key of Object.keys(partial)) {
@@ -205,7 +206,8 @@ function debouncedBackendSync() {
         providers: state.providers,
         reusePrompt: state.reusePrompt,
         reuseRef: state.reuseRef,
-        batchSize: state.batchSize
+        batchSize: state.batchSize,
+        aspectRatio: state.aspectRatio
       });
     } catch { }
   }, 200);
@@ -1387,6 +1389,7 @@ export async function initStore() {
     if (settings.reusePrompt !== undefined) state.reusePrompt = settings.reusePrompt;
     if (settings.reuseRef !== undefined) state.reuseRef = settings.reuseRef;
     if (settings.batchSize !== undefined) state.batchSize = settings.batchSize;
+    if (settings.aspectRatio !== undefined) state.aspectRatio = settings.aspectRatio;
   }
   
   // 恢复当前会话 ID
