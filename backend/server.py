@@ -285,6 +285,7 @@ def serve_image(image_path):
 MAX_CONCURRENT = 2       # Max concurrent generation requests
 MAX_QUEUE_DEPTH = 20     # Max pending tasks before rejecting
 REQUEST_TIMEOUT = 120    # HTTP request timeout in seconds
+REF_IMAGE_TIMEOUT = 15   # Timeout when request includes reference images (content moderation)
 MAX_RETRIES = 2          # Retry attempts on transient failures
 RETRY_BASE_DELAY = 5     # Base delay (s) for exponential backoff
 
@@ -512,7 +513,8 @@ def _execute_task(task_id):
 
                 body = {
                     'model': task['model'],
-                    'messages': [{'role': 'user', 'content': content}]
+                    'messages': [{'role': 'user', 'content': content}],
+                    'stream': True
                 }
 
                 encoded = json.dumps(body).encode('utf-8')
@@ -526,30 +528,67 @@ def _execute_task(task_id):
                     method='POST'
                 )
 
-                with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-                    resp_data = json.loads(resp.read().decode('utf-8'))
+                # 带参考图时使用较短超时，长时间无响应判定为内容违规
+                has_refs = bool(refs)
+                req_timeout = REF_IMAGE_TIMEOUT if has_refs else REQUEST_TIMEOUT
 
-                # 提取 reasoning_content / thinking 内容
                 thinking = ''
-                if isinstance(resp_data, dict):
-                    choices = resp_data.get('choices', [])
-                    if isinstance(choices, list) and choices:
-                        choice = choices[0]
-                        if isinstance(choice, dict):
-                            msg = choice.get('message', {})
-                            if isinstance(msg, dict):
-                                thinking = msg.get('reasoning_content', '') or msg.get('thinking', '') or ''
-                            if not thinking:
-                                thinking = choice.get('reasoning_content', '') or choice.get('thinking', '') or ''
+                final_content = ''
 
-                # 先保存 thinking 到任务（让前端可以实时展示）
-                if thinking:
-                    with _tasks_lock:
-                        if task_id in _tasks:
-                            task = _tasks[task_id]
-                            task['thinking'] = thinking
-                            task['updated_at'] = time.time()
-                            _save_task(task)
+                with urllib.request.urlopen(req, timeout=req_timeout) as resp:
+                    for line in resp:
+                        line = line.decode('utf-8', errors='replace').strip()
+                        if not line or not line.startswith('data:'):
+                            continue
+                        data_str = line[5:].strip()
+                        if data_str == '[DONE]':
+                            break
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = chunk.get('choices', [])
+                        if not choices:
+                            continue
+                        choice = choices[0]
+                        if not isinstance(choice, dict):
+                            continue
+                        delta = choice.get('delta', {})
+                        if not isinstance(delta, dict):
+                            continue
+
+                        # 累积 reasoning_content
+                        reasoning = delta.get('reasoning_content', '') or ''
+                        if reasoning:
+                            thinking += reasoning
+                            # 实时保存 thinking 到任务
+                            with _tasks_lock:
+                                if task_id in _tasks:
+                                    t = _tasks[task_id]
+                                    t['thinking'] = thinking
+                                    t['updated_at'] = time.time()
+                                    _save_task(t)
+
+                        # 累积 content
+                        content_delta = delta.get('content', '') or ''
+                        if content_delta:
+                            final_content += content_delta
+
+                        # 检查是否结束
+                        finish_reason = choice.get('finish_reason', '')
+                        if finish_reason == 'stop':
+                            break
+
+                # 构建兼容 _store_image_from_response 的响应格式
+                resp_data = {
+                    'choices': [{
+                        'message': {
+                            'content': final_content,
+                            'reasoning_content': thinking
+                        }
+                    }]
+                }
 
                 image_url = _store_image_from_response(resp_data, base)
 
@@ -585,7 +624,19 @@ def _execute_task(task_id):
                 return
 
             except (urllib.error.URLError, socket.timeout, OSError) as e:
-                err_msg = str(e.reason)[:200] if hasattr(e, 'reason') else str(e)[:200]
+                raw_err = e.reason if hasattr(e, 'reason') else e
+                err_msg = str(raw_err)[:200]
+                # 带参考图时超时（15s 无响应）判定为内容违规，不重试
+                is_timeout = isinstance(raw_err, socket.timeout) or 'timeout' in err_msg.lower() or 'timed out' in err_msg.lower()
+                if has_refs and is_timeout:
+                    with _tasks_lock:
+                        if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                            t = _tasks[task_id]
+                            t['status'] = 'failed'
+                            t['error'] = '参考图片可能包含违规内容，无法上传'
+                            t['updated_at'] = time.time()
+                            _save_task(t)
+                    return
                 if attempt < MAX_RETRIES:
                     last_error = err_msg
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
