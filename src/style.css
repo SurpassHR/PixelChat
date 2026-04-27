@@ -7,16 +7,16 @@
 }
 
 :root {
-  --bg: #0f0f0f;
-  --bg-deeper: #080808;
-  --surface: #1a1a1a;
-  --surface2: #242424;
+  --bg: #080808;
+  --bg-deeper: #060606;
+  --surface: #1a1815;
+  --surface2: #1f1c18;
   --surface-warm: #1a1815;
   --border: #333;
   --text: #e0e0e0;
   --text2: #999;
-  --accent: #8ab4f8;
-  --accent-dim: #4a6fa5;
+  --accent: #e8b86d;
+  --accent-dim: #8b6914;
   --amber: #e8b86d;
   --amber-dim: #8b6914;
   --danger: #f28b82;
@@ -45,7 +45,7 @@ body {
 }
 
 .resize-handle:hover {
-  background: rgba(138, 180, 248, 0.4);
+  background: rgba(232, 184, 109, 0.4);
 }
 
 .resize-handle-left {
@@ -67,7 +67,7 @@ body {
 }
 
 .resize-handle-h:hover {
-  background: rgba(138, 180, 248, 0.4);
+  background: rgba(232, 184, 109, 0.4);
 }
 
 /* Sidebar */
@@ -598,12 +598,12 @@ body {
 }
 
 .mat-item.mat-selected {
-  background: rgba(74, 111, 165, 0.2);
+  background: rgba(139, 105, 20, 0.2);
   border-left: 2px solid var(--accent);
 }
 
 .mat-item.mat-dragover {
-  background: rgba(74, 111, 165, 0.4);
+  background: rgba(139, 105, 20, 0.4);
   outline: 1px solid var(--accent);
 }
 
@@ -796,7 +796,7 @@ body {
 }
 
 .mat-root-dragover {
-  background: rgba(74, 111, 165, 0.08);
+  background: rgba(139, 105, 20, 0.08);
   outline: 2px dashed var(--accent-dim);
   outline-offset: -2px;
 }
@@ -842,7 +842,7 @@ body {
 }
 
 .mat-stack-expand-btn:hover {
-  background: rgba(138, 180, 248, 0.15);
+  background: rgba(232, 184, 109, 0.15);
   color: var(--accent);
 }
 
@@ -935,7 +935,7 @@ body {
 }
 
 .canvas-container.drag-over-surf {
-  background: rgba(74, 111, 165, 0.08) !important;
+  background: rgba(139, 105, 20, 0.08) !important;
   outline: 2px dashed var(--accent-dim);
   outline-offset: -8px;
 }
@@ -985,7 +985,7 @@ body {
 }
 
 .canvas-item:hover {
-  border-color: rgba(138, 180, 248, 0.3);
+  border-color: rgba(232, 184, 109, 0.3);
 }
 
 .canvas-item.selected {
@@ -1037,7 +1037,7 @@ body {
 /* Stack group styles */
 .canvas-item.stack-item {
   border: 2px solid var(--accent-dim);
-  background: rgba(74, 111, 165, 0.1);
+  background: rgba(139, 105, 20, 0.1);
   position: relative;
 }
 
@@ -1074,7 +1074,7 @@ body {
 .rubber-band {
   position: fixed;
   z-index: 9999;
-  background: rgba(138, 180, 248, 0.08);
+  background: rgba(232, 184, 109, 0.08);
   border: 1px solid var(--accent-dim);
   border-radius: 2px;
   pointer-events: none;
@@ -2428,7 +2428,7 @@ body {
 
 .detail-btn:hover {
   border-color: var(--accent-dim);
-  background: rgba(74, 111, 165, 0.15);
+  background: rgba(139, 105, 20, 0.15);
 }
 
 /* Prompt history items */
@@ -2710,7 +2710,7 @@ body {
 
 .settings-btn:hover {
   border-color: var(--accent-dim);
-  background: rgba(74, 111, 165, 0.15);
+  background: rgba(139, 105, 20, 0.15);
 }
 
 .settings-btn-sm {
@@ -2790,7 +2790,7 @@ body {
   max-height: 700px;
   display: flex;
   flex-direction: column;
-  background: #1a1b1e;
+  background: var(--surface-warm);
   border: 1px solid var(--border);
   border-radius: 14px;
   overflow: hidden;
@@ -2810,7 +2810,7 @@ body {
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  background: #1e1f23;
+  background: var(--surface);
 }
 
 .settings-sidebar-header {
@@ -2874,7 +2874,7 @@ body {
 }
 
 .settings-provider-item.active {
-  background: rgba(74, 111, 165, 0.12);
+  background: rgba(139, 105, 20, 0.12);
   color: var(--accent);
   border-left-color: var(--accent-dim);
 }
@@ -2893,7 +2893,7 @@ body {
 }
 
 .settings-provider-item.active .p-icon {
-  background: rgba(74, 111, 165, 0.2);
+  background: rgba(139, 105, 20, 0.2);
   color: var(--accent);
 }
 
@@ -2920,7 +2920,7 @@ body {
 .settings-main {
   flex: 1;
   overflow-y: auto;
-  background: #1a1b1e;
+  background: var(--surface-warm);
   display: flex;
   flex-direction: column;
 }
@@ -2965,7 +2965,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #1a1b1e;
+  background: var(--surface-warm);
 }
 
 .settings-config-info {
@@ -3029,7 +3029,7 @@ body {
 
 .settings-btn:hover {
   border-color: var(--accent-dim);
-  background: rgba(74, 111, 165, 0.12);
+  background: rgba(139, 105, 20, 0.12);
 }
 
 .settings-btn-sm {
@@ -3081,7 +3081,7 @@ body {
 }
 
 .settings-card {
-  background: #232429;
+  background: var(--surface2);
   border: 1px solid rgba(51, 51, 51, 0.5);
   border-radius: 10px;
   padding: 16px;
@@ -3103,7 +3103,7 @@ body {
 }
 
 .settings-field input {
-  background: #1a1b1e;
+  background: var(--surface-warm);
   border: 1px solid var(--border);
   color: var(--text);
   padding: 8px 12px;
@@ -3227,7 +3227,7 @@ body {
 /* ========== Add Provider Modal ========== */
 
 .ap-modal {
-  background: #1e1f23;
+  background: var(--surface);
   width: 100%;
   max-width: 580px;
   border-radius: 16px;
@@ -3245,7 +3245,7 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  background: #232429;
+  background: var(--surface2);
   flex-shrink: 0;
 }
 
@@ -3270,7 +3270,7 @@ body {
 
 .ap-search input {
   width: 100%;
-  background: #1a1b1e;
+  background: var(--surface-warm);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 14px;
@@ -3305,14 +3305,14 @@ body {
   padding: 14px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: #232429;
+  background: var(--surface2);
   cursor: pointer;
   transition: border-color 0.2s, background 0.2s, transform 0.1s;
 }
 
 .ap-card:hover {
   border-color: var(--accent-dim);
-  background: rgba(74, 111, 165, 0.06);
+  background: rgba(139, 105, 20, 0.06);
 }
 
 .ap-card:active {
@@ -3323,7 +3323,7 @@ body {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: #1a1b1e;
+  background: var(--surface-warm);
   border: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -3336,7 +3336,7 @@ body {
 }
 
 .ap-card:hover .ap-card-icon {
-  border-color: rgba(74, 111, 165, 0.3);
+  border-color: rgba(139, 105, 20, 0.3);
   color: var(--accent);
 }
 
@@ -3452,7 +3452,7 @@ body {
 }
 
 .ap-custom-field input {
-  background: #1a1b1e;
+  background: var(--surface-warm);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
@@ -3491,7 +3491,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #1a1b1e;
+  background: var(--surface-warm);
   flex-shrink: 0;
 }
 
