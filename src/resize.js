@@ -1,153 +1,206 @@
 /**
- * 侧边栏拖拽调整宽度功能
+ * 通用拖拽调整大小系统
+ * 支持水平 (col-resize) 和垂直 (row-resize) 两种方向
  */
 
-const STORAGE_KEY_LEFT = 'sidebar-left-width';
-const STORAGE_KEY_RIGHT = 'sidebar-right-width';
+// 存储 key 映射 — 已有 key 保持兼容
+const STORAGE_MAP = {
+  'sidebar-left-width': 'sidebar-left-width',
+  'sidebar-right-width': 'sidebar-right-width',
+};
 
-// 宽度限制
-const MIN_WIDTH = 200;
-const MAX_WIDTH = 500;
+function storageKey(id) {
+  return STORAGE_MAP[id] || 'resize-' + id;
+}
 
-// 拖拽状态
-let isResizing = false;
-let activeHandle = null;         // 'left' 或 'right'
-let startX = 0;
-let startWidth = 0;
+// 通用配置
+const HANDLERS = [
+  {
+    id: 'sidebar-left-width',
+    handle: '.resize-handle-left',
+    direction: 'horizontal',
+    target: '.sidebar',
+    min: 200,
+    max: 500,
+    default: 320,
+    reverse: false,
+  },
+  {
+    id: 'sidebar-right-width',
+    handle: '.resize-handle-right',
+    direction: 'horizontal',
+    target: '.sidebar-right',
+    min: 200,
+    max: 500,
+    default: 320,
+    reverse: true,
+  },
+  {
+    id: 'history-section-height',
+    handle: '.resize-handle-history',
+    direction: 'vertical',
+    target: '.history-section',
+    min: 60,
+    max: null,
+    default: null,
+    reverse: false,
+    getMax() {
+      const sidebar = document.querySelector('.sidebar');
+      if (!sidebar) return 9999;
+      const log = document.querySelector('#taskLogSection');
+      const tq = document.querySelector('.taskqueue-section:not(#taskLogSection)');
+      const handles = sidebar.querySelectorAll('.resize-handle-h');
+      const other = (log ? Math.max(60, log.offsetHeight || 60) : 60)
+        + (tq ? Math.max(60, tq.offsetHeight || 60) : 60);
+      return sidebar.clientHeight - other - handles.length * 4;
+    },
+  },
+  {
+    id: 'log-section-height',
+    handle: '.resize-handle-log',
+    direction: 'vertical',
+    target: '#taskLogSection',
+    min: 60,
+    max: null,
+    default: null,
+    reverse: false,
+    getMax() {
+      const sidebar = document.querySelector('.sidebar');
+      if (!sidebar) return 9999;
+      const history = document.querySelector('.history-section');
+      const tq = document.querySelector('.taskqueue-section:not(#taskLogSection)');
+      const handles = sidebar.querySelectorAll('.resize-handle-h');
+      const other = (history ? Math.max(60, history.offsetHeight || 60) : 60)
+        + (tq ? Math.max(60, tq.offsetHeight || 60) : 60);
+      return sidebar.clientHeight - other - handles.length * 4;
+    },
+  },
+  {
+    id: 'settings-sidebar-width',
+    handle: '.resize-handle-settings',
+    direction: 'horizontal',
+    target: '.settings-sidebar',
+    min: 150,
+    max: 400,
+    default: 220,
+    reverse: false,
+  },
+];
 
-/**
- * 设置左侧栏宽度并保存
- */
-function setLeftWidth(width) {
-    const sidebar = document.querySelector('.sidebar');
-    if (!sidebar) return;
-    width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width));
-    sidebar.style.width = width + 'px';
-    localStorage.setItem(STORAGE_KEY_LEFT, width);
+// 运行时状态
+let active = null;
+let startPos = 0;
+let startSize = 0;
+
+function isHoriz(cfg) {
+  return cfg.direction === 'horizontal';
 }
 
 /**
- * 设置右侧栏宽度并保存
+ * 从 localStorage 恢复所有已保存的尺寸
  */
-function setRightWidth(width) {
-    const sidebarRight = document.querySelector('.sidebar-right');
-    if (!sidebarRight) return;
-    width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width));
-    sidebarRight.style.width = width + 'px';
-    localStorage.setItem(STORAGE_KEY_RIGHT, width);
+export function loadAllSizes() {
+  for (const cfg of HANDLERS) {
+    const saved = localStorage.getItem(storageKey(cfg.id));
+    if (saved === null) continue;
+    const size = parseInt(saved, 10);
+    if (isNaN(size)) continue;
+    apply(cfg, clamp(cfg, size));
+  }
 }
 
-/**
- * 从 localStorage 加载保存的宽度，并应用到侧边栏
- */
-export function loadResizeWidths() {
-    const savedLeft = localStorage.getItem(STORAGE_KEY_LEFT);
-    if (savedLeft !== null) {
-        const width = parseInt(savedLeft, 10);
-        if (!isNaN(width)) {
-            setLeftWidth(width);
-        }
-    }
-    const savedRight = localStorage.getItem(STORAGE_KEY_RIGHT);
-    if (savedRight !== null) {
-        const width = parseInt(savedRight, 10);
-        if (!isNaN(width)) {
-            setRightWidth(width);
-        }
-    }
+function apply(cfg, size) {
+  const el = document.querySelector(cfg.target);
+  if (!el) return;
+  const prop = isHoriz(cfg) ? 'width' : 'height';
+  el.style[prop] = size + 'px';
+  if (!isHoriz(cfg)) {
+    el.style.flex = 'none';
+  }
 }
 
-/**
- * 开始拖拽调整
- */
-function startResize(e, handle) {
-    if (e.button !== 0) return; // 只响应左键
-    e.preventDefault();
-
-    activeHandle = handle;
-    startX = e.clientX;
-
-    if (handle === 'left') {
-        const sidebar = document.querySelector('.sidebar');
-        startWidth = sidebar ? sidebar.offsetWidth : 320;
-    } else if (handle === 'right') {
-        const sidebarRight = document.querySelector('.sidebar-right');
-        startWidth = sidebarRight ? sidebarRight.offsetWidth : 320;
-    }
-
-    isResizing = true;
-
-    // 全局样式避免选中文本
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-
-    // 添加全局事件监听
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+function clamp(cfg, size) {
+  const max = typeof cfg.getMax === 'function' ? cfg.getMax() : cfg.max;
+  return Math.max(cfg.min, Math.min(max, size));
 }
 
-/**
- * 拖拽中
- */
+function persist(cfg) {
+  const el = document.querySelector(cfg.target);
+  if (!el) return;
+  const prop = isHoriz(cfg) ? 'width' : 'height';
+  const size = el.style[prop];
+  if (size) {
+    localStorage.setItem(storageKey(cfg.id), parseInt(size, 10));
+  }
+}
+
+// ── 拖拽事件 ──
+
+function startResize(e, cfg) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+
+  const el = document.querySelector(cfg.target);
+  if (!el) return;
+
+  const rect = el.getBoundingClientRect();
+  startPos = isHoriz(cfg) ? e.clientX : e.clientY;
+  startSize = isHoriz(cfg) ? rect.width : rect.height;
+  active = cfg;
+
+  document.body.style.cursor = isHoriz(cfg) ? 'col-resize' : 'row-resize';
+  document.body.style.userSelect = 'none';
+
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+}
+
 function onMouseMove(e) {
-    if (!isResizing) return;
+  if (!active) return;
 
-    let delta = e.clientX - startX;
-    let newWidth = startWidth;
+  const currentPos = isHoriz(active) ? e.clientX : e.clientY;
+  let delta = currentPos - startPos;
+  if (active.reverse) delta = -delta;
 
-    if (activeHandle === 'left') {
-        // 左侧栏拖拽：向右拖拽增加宽度
-        newWidth = startWidth + delta;
-        setLeftWidth(newWidth);
-    } else if (activeHandle === 'right') {
-        // 右侧栏拖拽：向左拖拽增加宽度（因为手柄在右侧栏左侧，鼠标左移时 delta 为负，宽度应增加）
-        // 注意：右侧栏的位置在右边，拖拽向左移动时，宽度需要变大
-        newWidth = startWidth - delta;
-        setRightWidth(newWidth);
-    }
+  const newSize = clamp(active, startSize + delta);
+  apply(active, newSize);
 }
 
-/**
- * 结束拖拽
- */
 function onMouseUp() {
-    if (!isResizing) return;
-    isResizing = false;
-    activeHandle = null;
+  if (!active) return;
+  persist(active);
+  active = null;
 
-    // 恢复全局样式
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
 
-    // 移除全局事件监听
-    document.removeEventListener('mousemove', onMouseMove);
-    document.removeEventListener('mouseup', onMouseUp);
+  document.removeEventListener('mousemove', onMouseMove);
+  document.removeEventListener('mouseup', onMouseUp);
 }
 
-/**
- * 初始化拖拽手柄
- */
-export function initResizeHandles() {
-    const leftHandle = document.querySelector('.resize-handle-left');
-    const rightHandle = document.querySelector('.resize-handle-right');
+// ── 初始化 ──
 
-    if (leftHandle) {
-        leftHandle.addEventListener('mousedown', (e) => startResize(e, 'left'));
-    }
-    if (rightHandle) {
-        rightHandle.addEventListener('mousedown', (e) => startResize(e, 'right'));
-    }
+export function initAllHandles() {
+  for (const cfg of HANDLERS) {
+    const handle = document.querySelector(cfg.handle);
+    if (!handle) continue;
 
-    // 可选：双击手柄恢复默认宽度
-    const DEFAULT_WIDTH = 320;
-    if (leftHandle) {
-        leftHandle.addEventListener('dblclick', () => {
-            setLeftWidth(DEFAULT_WIDTH);
-        });
+    handle.addEventListener('mousedown', (e) => startResize(e, cfg));
+
+    if (cfg.default !== null) {
+      handle.addEventListener('dblclick', () => {
+        apply(cfg, cfg.default);
+        persist(cfg);
+      });
+    } else {
+      handle.addEventListener('dblclick', () => {
+        const el = document.querySelector(cfg.target);
+        if (!el) return;
+        const prop = isHoriz(cfg) ? 'width' : 'height';
+        el.style[prop] = '';
+        el.style.flex = '';
+        localStorage.removeItem(storageKey(cfg.id));
+      });
     }
-    if (rightHandle) {
-        rightHandle.addEventListener('dblclick', () => {
-            setRightWidth(DEFAULT_WIDTH);
-        });
-    }
+  }
 }
