@@ -86,7 +86,7 @@ async function syncToCanvas(tasks) {
         addFailedTask(task);
         processedIds.add(task.id);
       } else if (task.status === 'completed' && !task.image_url) {
-        addFailedTask({ ...task, error: '响应中未找到图片' });
+        addFailedTask({ ...task, status: 'failed', error: '响应中未找到图片' });
         processedIds.add(task.id);
       } else if (task.status === 'completed' && task.image_url) {
         addSuccessTask(task);
@@ -118,7 +118,7 @@ async function syncToCanvas(tasks) {
         });
         processedIds.add(task.id);
       } else {
-        addFailedTask({ ...task, error: '响应中未找到图片' });
+        addFailedTask({ ...task, status: 'failed', error: '响应中未找到图片' });
         await addResultToCanvas({
           status: 'error',
           error: '响应中未找到图片',

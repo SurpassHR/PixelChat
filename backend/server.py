@@ -643,8 +643,24 @@ def _execute_task(task_id):
                     task = _tasks[task_id]
                     if task['status'] == 'cancelled':
                         return
-                    task['status'] = 'completed'
-                    task['image_url'] = image_url or ''
+
+                    if not image_url and final_content.strip():
+                        # 检测 final_content 是否为错误/拒绝消息（不含图片）
+                        has_image = bool(
+                            re_module.search(r'!\[.*?\]\(.*?\)', final_content) or
+                            re_module.search(r'https?://\S+\.(?:jpg|jpeg|png|gif|webp)', final_content) or
+                            'data:image/' in final_content
+                        )
+                        if not has_image:
+                            task['status'] = 'failed'
+                            task['error'] = final_content.strip()[:500]
+                        else:
+                            task['status'] = 'completed'
+                            task['image_url'] = ''
+                    else:
+                        task['status'] = 'completed'
+                        task['image_url'] = image_url or ''
+
                     task['updated_at'] = time.time()
                     _save_task(task)
                 return  # Success

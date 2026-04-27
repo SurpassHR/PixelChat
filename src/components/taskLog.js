@@ -125,7 +125,9 @@ function addLogEntry(task, type) {
 
 export function addFailedTask(task) {
   if (!task || !task.id) return;
-  if (task.status !== 'failed') return;
+  const isRealError = task.status === 'failed' || (task.status === 'completed' && !task.image_url);
+  if (!isRealError) return;
+  if (!task.error) return;
   addLogEntry(task, 'error');
 }
 
