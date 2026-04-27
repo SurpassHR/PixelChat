@@ -3,6 +3,9 @@ import { $$ } from '../domHelpers.js';
 import { openImageDetail } from './modal.js';
 import { showToast } from '../toast.js';
 
+// 图片模糊状态 (Ctrl+H / Cmd+H 切换)
+let _imagesBlurred = false;
+
 // 展开状态
 let _expandedStackId = null;        // 当前展开的 stack ID
 let _expandedItems = [];            // 展开时临时生成的 canvasItems
@@ -844,6 +847,19 @@ export function initCanvas() {
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       handlePasteFromClipboard();
+    }
+  });
+
+  // Toggle image blur (Ctrl+H / Cmd+H)
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      _imagesBlurred = !_imagesBlurred;
+      surface.classList.toggle('images-blurred', _imagesBlurred);
+      document.body.classList.toggle('images-blurred', _imagesBlurred);
+      setState({ statusText: _imagesBlurred ? '图片已隐藏 (Ctrl+H 恢复)' : '' });
     }
   });
 

@@ -981,6 +981,16 @@ body {
   pointer-events: none;
 }
 
+.images-blurred .canvas-item img {
+  filter: blur(20px);
+  transition: filter 0.2s ease;
+}
+
+.images-blurred .attachment-item img {
+  filter: blur(20px);
+  transition: filter 0.2s ease;
+}
+
 .canvas-item .item-label {
   position: absolute;
   bottom: 0;
