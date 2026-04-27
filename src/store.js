@@ -18,7 +18,8 @@ const state = {
   viewport: { panX: 0, panY: 0, zoom: 1 },
   statusText: '就绪',
   generating: false,
-  batchSize: 1
+  batchSize: 1,
+  aspectRatio: '1:1'
 };
 
 // --------------------------------------------------------------
@@ -66,6 +67,12 @@ export function cancelGeneration(placeholderId) {
   const item = state.canvasItems.find(i => i.itemId === placeholderId);
   if (item && item.taskId) {
     cancelBackendTask(item.taskId).catch(() => { });
+    // Clean up pendingTasks so it won't reappear on refresh
+    const session = state.sessions[state.currentSessionId];
+    if (session && session.pendingTasks) {
+      session.pendingTasks = session.pendingTasks.filter(pt => pt.taskId !== item.taskId);
+      saveSessions();
+    }
   }
 }
 
@@ -81,7 +88,7 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
-  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial) {
+  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'aspectRatio' in partial) {
     saveSettings();
   }
   for (const key of Object.keys(partial)) {
@@ -199,7 +206,8 @@ function debouncedBackendSync() {
         providers: state.providers,
         reusePrompt: state.reusePrompt,
         reuseRef: state.reuseRef,
-        batchSize: state.batchSize
+        batchSize: state.batchSize,
+        aspectRatio: state.aspectRatio
       });
     } catch { }
   }, 200);
@@ -436,6 +444,20 @@ export function addGeneratingPlaceholder(prompt, refImages, taskId) {
     type: 'image'
   };
   state.canvasItems.push(item);
+
+  // Persist pending task in session so placeholders survive page refresh
+  const session = state.sessions[state.currentSessionId];
+  if (session && taskId) {
+    session.pendingTasks = session.pendingTasks || [];
+    session.pendingTasks.push({
+      taskId,
+      prompt: prompt || '',
+      refImages: refImages || [],
+      startTime: Date.now()
+    });
+    saveSessions();
+  }
+
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
   return item;
 }
@@ -456,7 +478,12 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
   }
 
   if (placeholderId) {
+    const placeholder = state.canvasItems.find(it => it.itemId === placeholderId);
     state.canvasItems = state.canvasItems.filter(it => it.itemId !== placeholderId);
+    // Remove from pendingTasks so it won't be recreated on refresh
+    if (placeholder && placeholder.taskId && session.pendingTasks) {
+      session.pendingTasks = session.pendingTasks.filter(pt => pt.taskId !== placeholder.taskId);
+    }
   }
 
   session.messages = session.messages || [];
@@ -739,6 +766,26 @@ export async function rebuildCanvasFromSession() {
           imageUrl: thumbnail          // 提供 imageUrl 以便通用逻辑回退（可选）
         });
       }
+    });
+  }
+
+  // 重建生成中的占位符（来自 pendingTasks），确保刷新后不丢失
+  if (session.pendingTasks && session.pendingTasks.length > 0) {
+    console.log('[重建画布] 恢复 pendingTasks:', session.pendingTasks.length, '个');
+    session.pendingTasks.forEach(pt => {
+      items.push({
+        itemId: 'gen-' + generateId(),
+        taskId: pt.taskId,
+        messageIndex: -1,
+        imageUrl: '',
+        prompt: pt.prompt || '',
+        refImages: pt.refImages || [],
+        generating: true,
+        status: 'generating',
+        startTime: pt.startTime || Date.now(),
+        error: '',
+        type: 'image'
+      });
     });
   }
 
@@ -1216,6 +1263,107 @@ export async function cancelBackendTask(taskId) {
   await apiCancelTask(taskId);
 }
 
+// 在初始化时同步 pendingTasks 与后端任务状态：
+// - 已完成的任务直接生成结果，不再显示占位符
+// - 清理后端不存在的孤儿 pendingTasks
+async function _reconcilePendingTasks() {
+  const sessions = state.sessions;
+  if (!sessions || !Object.keys(sessions).length) return;
+
+  let backendTasks = [];
+  try {
+    backendTasks = await fetchTasks();
+  } catch (e) {
+    console.log('[同步] 无法获取后端任务列表，跳过 pendingTasks 同步:', e.message);
+    return;
+  }
+
+  if (!Array.isArray(backendTasks) || backendTasks.length === 0) return;
+
+  const backendTaskMap = {};
+  for (const t of backendTasks) {
+    backendTaskMap[t.id] = t;
+  }
+
+  let anyChanges = false;
+
+  for (const sid of Object.keys(sessions)) {
+    const session = sessions[sid];
+    if (!session.pendingTasks || session.pendingTasks.length === 0) continue;
+
+    const remaining = [];
+
+    for (const pt of session.pendingTasks) {
+      const backendTask = backendTaskMap[pt.taskId];
+
+      if (!backendTask) {
+        // 后端已清理此任务（可能超时被清理），从 pendingTasks 移除
+        console.log('[同步] 清理孤儿 pendingTask:', pt.taskId);
+        anyChanges = true;
+        continue;
+      }
+
+      if (backendTask.status === 'completed' && backendTask.image_url) {
+        console.log('[同步] 恢复已完成任务:', pt.taskId);
+        const prevSessionId = state.currentSessionId;
+        state.currentSessionId = sid;
+
+        try {
+          await addResultToCanvas({
+            status: 'ok',
+            imageUrl: backendTask.image_url,
+            prompt: backendTask.prompt || pt.prompt,
+            refImages: pt.refImages || [],
+            placeholderId: null
+          });
+        } catch (e) {
+          console.error('[同步] 恢复已完成任务失败:', pt.taskId, e);
+          remaining.push(pt);
+          state.currentSessionId = prevSessionId;
+          continue;
+        }
+
+        state.currentSessionId = prevSessionId;
+        anyChanges = true;
+      } else if (backendTask.status === 'failed' || backendTask.status === 'cancelled') {
+        console.log('[同步] 恢复失败/取消任务:', pt.taskId, backendTask.status);
+        const prevSessionId = state.currentSessionId;
+        state.currentSessionId = sid;
+
+        if (backendTask.status === 'failed') {
+          try {
+            await addResultToCanvas({
+              status: 'error',
+              error: backendTask.error || '生成失败',
+              prompt: backendTask.prompt || pt.prompt,
+              refImages: pt.refImages || [],
+              placeholderId: null
+            });
+          } catch (e) {
+            console.error('[同步] 恢复失败任务结果出错:', pt.taskId, e);
+            remaining.push(pt);
+            state.currentSessionId = prevSessionId;
+            continue;
+          }
+        }
+
+        state.currentSessionId = prevSessionId;
+        anyChanges = true;
+      } else {
+        // pending 或 running 的任务，保留占位符
+        remaining.push(pt);
+      }
+    }
+
+    session.pendingTasks = remaining;
+  }
+
+  if (anyChanges) {
+    // 批量保存所有变更
+    try { await apiPost('/api/sessions', sanitizeForSave(state.sessions)); } catch {}
+  }
+}
+
 // --------------------------------------------------------------
 // 初始化存储（从后端加载数据）
 // --------------------------------------------------------------
@@ -1241,6 +1389,7 @@ export async function initStore() {
     if (settings.reusePrompt !== undefined) state.reusePrompt = settings.reusePrompt;
     if (settings.reuseRef !== undefined) state.reuseRef = settings.reuseRef;
     if (settings.batchSize !== undefined) state.batchSize = settings.batchSize;
+    if (settings.aspectRatio !== undefined) state.aspectRatio = settings.aspectRatio;
   }
   
   // 恢复当前会话 ID
@@ -1255,7 +1404,11 @@ export async function initStore() {
   }
   
   rebuildModels();
-  
+
+  // 在重建画布之前，先与后端任务列表同步 pendingTasks，
+  // 确保已完成的任务直接展示结果，而不显示占位符
+  await _reconcilePendingTasks();
+
   // 如果有当前会话，重建画布（恢复画布项）
   if (state.currentSessionId) {
     await rebuildCanvasFromSession();

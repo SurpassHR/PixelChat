@@ -1,6 +1,7 @@
 import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
+import { selectModel, fetchModels, groupModelsByProvider } from './modelSelector.js';
 
 function renderAttachments() {
   const container = $('#attachments');
@@ -88,30 +89,142 @@ async function generate() {
   setState({ statusText: `已提交 ${taskIds.length} 个任务到队列` });
 }
 
-function syncDropdownState() {
-  const { batchSize, reusePrompt, reuseRef } = getState();
+function syncSettingsState() {
+  const { batchSize, reusePrompt, reuseRef, aspectRatio, selectedModelId } = getState();
 
-  // Update batch badge
-  const badge = $('#triggerBatchBadge');
-  if (badge) badge.textContent = '×' + batchSize;
+  // 胶囊栏中的模型标签
+  const tagName = $('#modelTagName');
+  if (tagName) tagName.textContent = selectedModelId || '未选择';
+  const tagMult = $('#modelTagMult');
+  if (tagMult) tagMult.textContent = '×' + batchSize;
+  const tagRatio = $('#modelTagRatio');
+  if (tagRatio) tagRatio.textContent = aspectRatio;
 
-  // Update batch option buttons
-  $$('.batch-opt').forEach(btn => {
-    btn.classList.toggle('active', parseInt(btn.dataset.batch) === batchSize);
+  // 弹出面板中的模型名
+  const popoverName = $('#popoverModelName');
+  if (popoverName) popoverName.textContent = selectedModelId || '未选择';
+
+  // 比例按钮
+  $$('.ratio-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.ratio === aspectRatio);
   });
 
-  // Update reuse checkboxes
-  const promptCb = document.querySelector('#dropdownTogglePrompt input');
+  // 倍数按钮
+  $$('.multiplier-btn').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.mult) === batchSize);
+  });
+
+  // 复用开关
+  const promptCb = $('#popoverReusePrompt');
   if (promptCb) promptCb.checked = reusePrompt;
-  const refCb = document.querySelector('#dropdownToggleRef input');
+  const refCb = $('#popoverReuseRef');
   if (refCb) refCb.checked = reuseRef;
 }
 
-export function initPromptArea() {
-  // Generate button
-  $('#generateBtn').addEventListener('click', generate);
+// --- 模型下拉框 ---
 
-  // Enter to send
+let modelDropdownOpen = false;
+let modelDropdownHighlightIdx = -1;
+
+function openModelDropdown() {
+  modelDropdownOpen = true;
+  const dropdown = $('#modelDropdown');
+  dropdown.style.display = 'flex';
+  renderModelDropdownItems();
+  const search = $('#modelDropdownSearch');
+  search.value = '';
+  setTimeout(() => search.focus(), 50);
+}
+
+function closeModelDropdown() {
+  modelDropdownOpen = false;
+  $('#modelDropdown').style.display = 'none';
+  modelDropdownHighlightIdx = -1;
+}
+
+function toggleModelDropdown() {
+  if (modelDropdownOpen) closeModelDropdown();
+  else openModelDropdown();
+}
+
+function renderModelDropdownItems(filter = '') {
+  const { models, selectedModelId } = getState();
+  const list = $('#modelDropdownList');
+  const q = filter.toLowerCase().trim();
+
+  const filtered = q ? models.filter(m => m.id.toLowerCase().includes(q)) : models;
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="model-dropdown-empty">${models.length === 0 ? '模型列表为空，请点击下方刷新' : '无匹配模型'}</div>`;
+    modelDropdownHighlightIdx = -1;
+    return;
+  }
+
+  const groups = groupModelsByProvider(filtered);
+  const providerNames = Object.keys(groups).sort();
+
+  let html = '';
+  for (const provider of providerNames) {
+    html += `<div class="model-dropdown-group-label">${escapeHtml(provider)}</div>`;
+    for (const m of groups[provider]) {
+      const active = m.id === selectedModelId;
+      html += `<div class="model-dropdown-item${active ? ' highlighted' : ''}" data-mid="${escapeHtml(m.id)}">
+        <span class="md-check">${active ? '✓' : ''}</span>
+        <span class="md-name">${escapeHtml(m.id)}</span>
+        <span class="md-owner">${escapeHtml(m.owner || provider)}</span>
+      </div>`;
+    }
+  }
+
+  list.innerHTML = html;
+
+  // Set initial highlight
+  modelDropdownHighlightIdx = -1;
+  const items = $$('#modelDropdownList .model-dropdown-item');
+  if (selectedModelId && !q) {
+    const idx = Array.from(items).findIndex(el => el.dataset.mid === selectedModelId);
+    if (idx >= 0) {
+      modelDropdownHighlightIdx = idx;
+      items[idx].classList.add('highlighted');
+    }
+  }
+  if (modelDropdownHighlightIdx < 0 && items.length > 0) {
+    modelDropdownHighlightIdx = 0;
+    items[0].classList.add('highlighted');
+  }
+}
+
+function navigateModelDropdown(direction) {
+  const items = $$('#modelDropdownList .model-dropdown-item');
+  if (items.length === 0) return;
+
+  if (modelDropdownHighlightIdx >= 0 && modelDropdownHighlightIdx < items.length) {
+    items[modelDropdownHighlightIdx].classList.remove('highlighted');
+  }
+
+  modelDropdownHighlightIdx = (modelDropdownHighlightIdx + direction + items.length) % items.length;
+  items[modelDropdownHighlightIdx].classList.add('highlighted');
+  items[modelDropdownHighlightIdx].scrollIntoView({ block: 'nearest' });
+}
+
+function executeModelDropdownSelection() {
+  const items = $$('#modelDropdownList .model-dropdown-item');
+  if (modelDropdownHighlightIdx >= 0 && modelDropdownHighlightIdx < items.length) {
+    const mid = items[modelDropdownHighlightIdx].dataset.mid;
+    if (mid) {
+      selectModel(mid);
+      closeModelDropdown();
+    }
+  }
+}
+
+export function initPromptArea() {
+  const popover = $('#settingsPopover');
+  const modelTag = $('#modelTag');
+
+  // --- 生成操作 ---
+  $('#sendBtn').addEventListener('click', generate);
+
   $('#promptInput').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -119,66 +232,148 @@ export function initPromptArea() {
     }
   });
 
-  // Sync initial dropdown state
-  syncDropdownState();
+  // --- 初始同步 ---
+  syncSettingsState();
 
-  // Dropdown toggle
-  const trigger = $('#optionsTrigger');
-  const dropdown = $('#optionsDropdown');
-  trigger.addEventListener('click', e => {
+  // --- 弹出面板开/关 ---
+  modelTag.addEventListener('click', e => {
     e.stopPropagation();
-    const isOpen = dropdown.style.display !== 'none';
-    dropdown.style.display = isOpen ? 'none' : 'block';
-    trigger.setAttribute('aria-expanded', !isOpen);
+    const isOpen = popover.style.display !== 'none';
+    popover.style.display = isOpen ? 'none' : 'flex';
+    if (!isOpen) modelTag.classList.add('open');
+    else {
+      modelTag.classList.remove('open');
+      closeModelDropdown();
+    }
   });
 
-  // Close dropdown when clicking outside
+  // 点击面板外关闭
   document.addEventListener('click', e => {
-    if (!e.target.closest('.options-menu')) {
-      dropdown.style.display = 'none';
-      trigger.setAttribute('aria-expanded', 'false');
+    if (!e.target.closest('.settings-popover') && !e.target.closest('.model-tag')) {
+      popover.style.display = 'none';
+      modelTag.classList.remove('open');
+      closeModelDropdown();
+    }
+    // 点击下拉框外关闭下拉框（但保留 popover）
+    if (modelDropdownOpen && !e.target.closest('.model-dropdown') && !e.target.closest('.popover-model-row')) {
+      closeModelDropdown();
     }
   });
 
-  // Batch size buttons
-  $('#dropdownBatchRow').addEventListener('click', e => {
-    const btn = e.target.closest('.batch-opt');
-    if (!btn) return;
-    const val = parseInt(btn.dataset.batch);
-    if (val) {
-      setState({ batchSize: val });
-      syncDropdownState();
-    }
+  // --- Tab 切换（图片/视频） ---
+  $$('.popover-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      $$('.popover-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+    });
   });
 
-  // Reuse prompt toggle
-  const promptToggle = document.querySelector('#dropdownTogglePrompt input');
+  // --- 比例按钮 ---
+  $$('.ratio-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const ratio = btn.dataset.ratio;
+      if (ratio) {
+        setState({ aspectRatio: ratio });
+        syncSettingsState();
+      }
+    });
+  });
+
+  // --- 倍数按钮（映射到 batchSize） ---
+  $$('.multiplier-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mult = parseInt(btn.dataset.mult);
+      if (mult) {
+        setState({ batchSize: mult });
+        syncSettingsState();
+      }
+    });
+  });
+
+  // --- 弹出面板中的模型行切换下拉框 ---
+  const popoverModelRow = $('#popoverModelRow');
+  if (popoverModelRow) {
+    popoverModelRow.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleModelDropdown();
+    });
+  }
+
+  // --- 模型下拉框事件 ---
+  const dropdownSearch = $('#modelDropdownSearch');
+  dropdownSearch.addEventListener('input', e => {
+    renderModelDropdownItems(e.target.value);
+  });
+
+  dropdownSearch.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); navigateModelDropdown(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); navigateModelDropdown(-1); }
+    else if (e.key === 'Enter') { e.preventDefault(); executeModelDropdownSelection(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeModelDropdown(); }
+  });
+
+  $('#modelDropdownList').addEventListener('click', e => {
+    const item = e.target.closest('.model-dropdown-item');
+    if (!item) return;
+    selectModel(item.dataset.mid);
+    closeModelDropdown();
+  });
+
+  $('#modelDropdownRefresh').addEventListener('click', () => {
+    fetchModels();
+  });
+
+  // --- 复用开关 ---
+  const promptToggle = $('#popoverReusePrompt');
   if (promptToggle) {
     promptToggle.addEventListener('change', () => {
       setState({ reusePrompt: promptToggle.checked });
     });
   }
-
-  // Reuse ref toggle
-  const refToggle = document.querySelector('#dropdownToggleRef input');
+  const refToggle = $('#popoverReuseRef');
   if (refToggle) {
     refToggle.addEventListener('change', () => {
       setState({ reuseRef: refToggle.checked });
     });
   }
 
-  // Subscribe to state changes for UI sync
-  subscribe('batchSize', syncDropdownState);
-  subscribe('reusePrompt', syncDropdownState);
-  subscribe('reuseRef', syncDropdownState);
+  // --- + 按钮添加参考图 ---
+  const fileInput = $('#attachFileInput');
+  $('#attachBtn').addEventListener('click', () => {
+    fileInput.click();
+  });
+  fileInput.addEventListener('change', () => {
+    const files = Array.from(fileInput.files);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        addRefImage(file.name, ev.target.result);
+      };
+      reader.readAsDataURL(file);
+    });
+    fileInput.value = '';
+  });
 
-  // Remove attachment delegation
+  // --- 状态订阅 ---
+  subscribe('batchSize', syncSettingsState);
+  subscribe('reusePrompt', syncSettingsState);
+  subscribe('reuseRef', syncSettingsState);
+  subscribe('aspectRatio', syncSettingsState);
+  subscribe('selectedModelId', () => {
+    syncSettingsState();
+    if (modelDropdownOpen) renderModelDropdownItems($('#modelDropdownSearch').value);
+  });
+  subscribe('models', () => {
+    if (modelDropdownOpen) renderModelDropdownItems($('#modelDropdownSearch').value);
+  });
+
+  // --- 附件移除 ---
   $('#attachments').addEventListener('click', e => {
     const btn = e.target.closest('.remove');
     if (btn) removeRefImage(parseInt(btn.dataset.ridx));
   });
 
-  // Paste handler - add pasted images to canvas and material library
+  // --- 粘贴处理器 ---
   document.addEventListener('paste', e => {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -192,14 +387,14 @@ export function initPromptArea() {
           const dataUrl = ev.target.result;
           await addDroppedImage(dataUrl);
           await addMaterial(name, dataUrl);
-          setState({ statusText: `已添加图片到画布和素材库` });
+          setState({ statusText: '已添加图片到画布和素材库' });
         };
         reader.readAsDataURL(file);
       }
     }
   });
 
-  // Drag & drop target for prompt area
+  // --- 拖放目标 ---
   const promptArea = $('#promptArea');
   promptArea.addEventListener('dragover', e => {
     e.preventDefault();
@@ -220,7 +415,6 @@ export function initPromptArea() {
         const parsed = JSON.parse(data);
         if (parsed.dataUrl) {
           let finalUrl = parsed.dataUrl;
-          // Blob URLs can't be sent to external APIs; convert to data URL
           if (finalUrl.startsWith('blob:')) {
             try {
               const res = await fetch(finalUrl);
@@ -236,7 +430,6 @@ export function initPromptArea() {
           addRefImage(parsed.name || '参考图', finalUrl);
         }
       } catch {
-        // Try as URL
         if (data.startsWith('data:image')) {
           addRefImage('参考图', data);
         }
@@ -244,6 +437,6 @@ export function initPromptArea() {
     }
   });
 
-  // Subscribe to refImages changes
+  // --- 参考图变化订阅 ---
   subscribe('refImages', renderAttachments);
 }

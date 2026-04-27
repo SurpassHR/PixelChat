@@ -10,7 +10,8 @@ import { initModelSelector } from './components/modelSelector.js';
 import { initCommandPalette } from './components/commandPalette.js';
 import { initSettingsModal } from './components/settingsModal.js';
 import { initTaskQueue } from './components/taskQueue.js';
-import { loadResizeWidths, initResizeHandles } from './resize.js';
+import { initTaskLog } from './components/taskLog.js';
+import { loadAllSizes, initAllHandles } from './resize.js';
 
 (async () => {
   // Initialize store (loads from backend SQLite)
@@ -23,7 +24,7 @@ import { loadResizeWidths, initResizeHandles } from './resize.js';
   }
 
   // 加载保存的侧边栏宽度（必须在组件初始化之前应用，以避免布局闪烁）
-  loadResizeWidths();
+  loadAllSizes();
 
   // Initialize all components
   initSidebar();
@@ -36,9 +37,10 @@ import { loadResizeWidths, initResizeHandles } from './resize.js';
   initCommandPalette();
   initSettingsModal();
   initTaskQueue();
+  initTaskLog();
 
   // 初始化拖拽手柄（必须在 DOM 完全就绪后）
-  initResizeHandles();
+  initAllHandles();
 
   // Subscribe to status text updates
   subscribe('statusText', () => {

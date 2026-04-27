@@ -1,6 +1,7 @@
 import { getState, setState, subscribe, addMaterial, removeMaterial, createMaterialStack, ungroupMaterialStack, moveMaterialToStack, getFlattenedMaterialItems } from '../store.js';
 import { showToast } from '../toast.js';
 import { openImageDetail } from './modal.js';
+import { openExpandModal } from './expandModal.js';
 
 // ============================================================
 // 1. 注入全局样式（模拟 Tailwind 的设计系统）
@@ -1042,7 +1043,10 @@ function buildDOM() {
                 素材库
                 <span class="mat2-badge" style="display:none;">0</span>
             </div>
-            <button id="addMaterialBtn2" class="mat2-action-btn" title="添加素材">+</button>
+            <div style="display:flex;gap:6px">
+                <button id="expandMaterialBtn2" class="mat2-action-btn" title="展开" style="font-size:16px;">⤢</button>
+                <button id="addMaterialBtn2" class="mat2-action-btn" title="添加素材">+</button>
+            </div>
         </div>
         <div class="mat2-search">
             <div class="relative">
@@ -1108,6 +1112,13 @@ function buildDOM() {
     addBtn.addEventListener('click', () => {
         fileInput.click();
     });
+    // Expand button
+    const expandMaterialBtn = sidebar.querySelector('#expandMaterialBtn2');
+    if (expandMaterialBtn) {
+        expandMaterialBtn.addEventListener('click', () => {
+            openExpandModal('素材库', listContainer);
+        });
+    }
     fileInput.addEventListener('change', async (e) => {
         const files = Array.from(e.target.files);
         for (const file of files) {

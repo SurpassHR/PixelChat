@@ -1,5 +1,6 @@
 import { getState, subscribe, setState, createSession, deleteSession, switchSession } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
+import { openExpandModal } from './expandModal.js';
 
 // --- Session list ---
 
@@ -52,6 +53,11 @@ export function initSidebar() {
   // New session button
   $('#newSessionBtn').addEventListener('click', async () => {
     await createSession();
+  });
+
+  // Expand button
+  $('#expandHistoryBtn').addEventListener('click', () => {
+    openExpandModal('聊天记录', $('#sessionList'));
   });
 
   // Subscribe to store changes

@@ -191,6 +191,8 @@ function close() {
 
 // --- Init ---
 
+export function openModelSelector() { open('models'); }
+
 export function initCommandPalette() {
   document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
