@@ -538,11 +538,9 @@ def _execute_task(task_id):
                 encoded = json.dumps(body).encode('utf-8')
                 headers = {
                     'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {key}'
+                    'Authorization': f'Bearer {key}',
+                    'Connection': 'close'
                 }
-                # 重试时强制关闭连接，避免复用失效的 keep-alive 连接
-                if attempt > 0:
-                    headers['Connection'] = 'close'
 
                 req = urllib.request.Request(
                     f'{base}/v1/chat/completions',
@@ -592,7 +590,7 @@ def _execute_task(task_id):
 
                         error_keywords = ['❌', '失败', 'error', 'Error', 'ERROR', '违规', '拒绝', 'denied']
                         is_error_chunk = any(kw in content_preview or kw in reasoning_preview for kw in error_keywords)
-                        is_error_finish = finish_reason_chunk and finish_reason_chunk not in ('stop', '')
+                        is_error_finish = finish_reason_chunk and finish_reason_chunk not in ('stop', '', '102')
 
                         if is_error_chunk or is_error_finish:
                             print(f'[失败] 任务 {task_id} flow2api 返回失败 chunk，finish={finish_reason_chunk}')
@@ -663,6 +661,12 @@ def _execute_task(task_id):
                         if finish_reason in ('content_filter', 'length'):
                             print(f'[警告] 任务 {task_id} finish_reason={finish_reason}'
                                   f' chunk: {json.dumps(chunk, ensure_ascii=False)[:500]}')
+
+                # 温和排空连接，避免 RST 导致 flow2api 卡在"处理中"
+                try:
+                    resp.read(4096)
+                except Exception:
+                    pass
 
                 # 构建兼容 _store_image_from_response 的响应格式
                 resp_data = {
