@@ -19,8 +19,84 @@ const state = {
   statusText: '就绪',
   generating: false,
   batchSize: 1,
-  aspectRatio: '1:1'
+  aspectRatio: '1:1',
+  selectedFamilyId: '',
+  selectedResolution: '1K'
 };
+
+// --------------------------------------------------------------
+// 模型系列映射表
+// --------------------------------------------------------------
+const RATIO_SLUG = { '1:1':'square', '3:4':'three-four', '4:3':'four-three', '9:16':'portrait', '16:9':'landscape' };
+
+export const MODEL_FAMILIES = [
+  {
+    id: 'gemini-3.0-pro-image', label: 'Gemini 3.0 Pro',
+    ratios: { '1:1':['1K','2K','4K'], '3:4':['1K','2K','4K'], '4:3':['1K','2K','4K'], '9:16':['1K','2K','4K'], '16:9':['1K','2K','4K'] },
+    buildModelId(ratio, res) {
+      const slug = RATIO_SLUG[ratio]; if (!slug) return '';
+      const suffix = res === '1K' ? '' : `-${res.toLowerCase()}`;
+      return `${this.id}-${slug}${suffix}`;
+    }
+  },
+  {
+    id: 'gemini-3.1-flash-image', label: 'Gemini 3.1 Flash',
+    ratios: { '1:1':['1K','2K','4K'], '3:4':['1K','2K','4K'], '4:3':['1K','2K','4K'], '9:16':['1K','2K','4K'], '16:9':['1K','2K','4K'] },
+    buildModelId(ratio, res) {
+      const slug = RATIO_SLUG[ratio]; if (!slug) return '';
+      const suffix = res === '1K' ? '' : `-${res.toLowerCase()}`;
+      return `${this.id}-${slug}${suffix}`;
+    }
+  },
+  {
+    id: 'imagen-4.0', label: 'Imagen 4.0',
+    ratios: { '9:16':['Preview'], '16:9':['Preview'] },
+    buildModelId(ratio) {
+      if (ratio === '9:16') return 'imagen-4.0-generate-preview-portrait';
+      if (ratio === '16:9') return 'imagen-4.0-generate-preview-landscape';
+      return '';
+    }
+  }
+];
+
+export function getModelId(familyId, ratio, resolution) {
+  const family = MODEL_FAMILIES.find(f => f.id === familyId);
+  if (!family) return '';
+  const resList = family.ratios[ratio];
+  if (!resList || !resList.includes(resolution)) return '';
+  return family.buildModelId(ratio, resolution);
+}
+
+export function getAvailableFamilies() {
+  const { models } = state;
+  if (!models.length) return MODEL_FAMILIES;
+  return MODEL_FAMILIES.filter(f => {
+    return Object.entries(f.ratios).some(([ratio, resolutions]) => {
+      return resolutions.some(res => {
+        const mid = f.buildModelId(ratio, res);
+        return models.some(m => m.id === mid);
+      });
+    });
+  });
+}
+
+export function selectFamilyRatioResolution(familyId, ratio, resolution) {
+  const modelId = getModelId(familyId, ratio, resolution);
+  if (!modelId) return false;
+  setState({
+    selectedFamilyId: familyId,
+    aspectRatio: ratio,
+    selectedResolution: resolution,
+    selectedModelId: modelId
+  });
+  // Auto-detect provider from available models
+  const { models } = state;
+  const model = models.find(m => m.id === modelId);
+  if (model && model.provider) {
+    setState({ selectedProvider: model.provider });
+  }
+  return true;
+}
 
 // --------------------------------------------------------------
 // 工具函数
@@ -88,7 +164,7 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
-  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'aspectRatio' in partial) {
+  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'aspectRatio' in partial || 'selectedFamilyId' in partial || 'selectedResolution' in partial) {
     saveSettings();
   }
   for (const key of Object.keys(partial)) {
@@ -207,7 +283,9 @@ function debouncedBackendSync() {
         reusePrompt: state.reusePrompt,
         reuseRef: state.reuseRef,
         batchSize: state.batchSize,
-        aspectRatio: state.aspectRatio
+        aspectRatio: state.aspectRatio,
+        selectedFamilyId: state.selectedFamilyId,
+        selectedResolution: state.selectedResolution
       });
     } catch { }
   }, 200);
@@ -1392,6 +1470,8 @@ export async function initStore() {
     if (settings.reuseRef !== undefined) state.reuseRef = settings.reuseRef;
     if (settings.batchSize !== undefined) state.batchSize = settings.batchSize;
     if (settings.aspectRatio !== undefined) state.aspectRatio = settings.aspectRatio;
+    if (settings.selectedFamilyId !== undefined) state.selectedFamilyId = settings.selectedFamilyId;
+    if (settings.selectedResolution !== undefined) state.selectedResolution = settings.selectedResolution;
   }
   
   // 恢复当前会话 ID
@@ -1625,7 +1705,25 @@ export async function addToStack(stackId, itemId) {
   return true;
 }
 
-export async function removeFromStack(stackId, childIndex) {
+export async function mergeStacks(sourceStackId, targetStackId) {
+  const session = state.sessions[state.currentSessionId];
+  if (!session) return false;
+  if (!session.stacks) return false;
+
+  const sourceStack = session.stacks.find(s => s.id === sourceStackId);
+  const targetStack = session.stacks.find(s => s.id === targetStackId);
+  if (!sourceStack || !targetStack) return false;
+
+  targetStack.items.push(...sourceStack.items);
+  session.stacks = session.stacks.filter(s => s.id !== sourceStackId);
+  saveSessions();
+
+  await rebuildCanvasFromSession();
+  if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
+  return true;
+}
+
+export async function removeFromStack(stackId, childIndex, targetX, targetY) {
   console.log(`[移出Stack调试] 开始移除 stackId=${stackId}, childIndex=${childIndex}`);
   const session = state.sessions[state.currentSessionId];
   if (!session) {
@@ -1648,9 +1746,15 @@ export async function removeFromStack(stackId, childIndex) {
 
   // 移出的图片作为新的 dropped image 添加到画布
   if (removed) {
-    const { cx, cy } = getViewportCenter();
-    const newX = cx + (Math.random() * 100 - 50);
-    const newY = cy + (Math.random() * 100 - 50);
+    let newX, newY;
+    if (typeof targetX === 'number' && typeof targetY === 'number') {
+      newX = targetX;
+      newY = targetY;
+    } else {
+      const { cx, cy } = getViewportCenter();
+      newX = cx + (Math.random() * 100 - 50);
+      newY = cy + (Math.random() * 100 - 50);
+    }
     const dropId = generateId();
     const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
     const newDropped = {

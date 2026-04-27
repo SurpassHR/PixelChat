@@ -1,7 +1,7 @@
-import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask } from '../store.js';
+import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask, MODEL_FAMILIES, getModelId, selectFamilyRatioResolution } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
-import { selectModel, fetchModels, groupModelsByProvider } from './modelSelector.js';
+import { selectModel, fetchModels } from './modelSelector.js';
 import * as monaco from 'monaco-editor';
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
@@ -160,19 +160,20 @@ async function generate() {
 }
 
 function syncSettingsState() {
-  const { batchSize, reusePrompt, reuseRef, aspectRatio, selectedModelId } = getState();
+  const { batchSize, reusePrompt, reuseRef, aspectRatio, selectedFamilyId, selectedResolution } = getState();
 
-  // 胶囊栏中的模型标签
+  // 胶囊栏中的模型标签 — 显示系列简称
+  const family = selectedFamilyId ? MODEL_FAMILIES.find(f => f.id === selectedFamilyId) : null;
   const tagName = $('#modelTagName');
-  if (tagName) tagName.textContent = selectedModelId || '未选择';
+  if (tagName) tagName.textContent = family ? family.label : (selectedFamilyId || '未选择');
   const tagMult = $('#modelTagMult');
   if (tagMult) tagMult.textContent = '×' + batchSize;
   const tagRatio = $('#modelTagRatio');
   if (tagRatio) tagRatio.textContent = aspectRatio;
 
-  // 弹出面板中的模型名
+  // 弹出面板中的模型名（旧元素兼容）
   const popoverName = $('#popoverModelName');
-  if (popoverName) popoverName.textContent = selectedModelId || '未选择';
+  if (popoverName) popoverName.textContent = family ? family.label : '未选择';
 
   // 比例按钮
   $$('.ratio-btn').forEach(btn => {
@@ -184,6 +185,14 @@ function syncSettingsState() {
     btn.classList.toggle('active', parseInt(btn.dataset.mult) <= batchSize);
   });
 
+  // 系列按钮
+  $$('.family-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.family === selectedFamilyId);
+  });
+
+  // 分辨率按钮 — 根据当前 family+ratio 动态启用/禁用
+  renderResolutionButtons();
+
   // 复用开关
   const promptCb = $('#popoverReusePrompt');
   if (promptCb) promptCb.checked = reusePrompt;
@@ -191,101 +200,24 @@ function syncSettingsState() {
   if (refCb) refCb.checked = reuseRef;
 }
 
-// --- 模型下拉框 ---
+// 根据当前 family + ratio 渲染分辨率按钮状态
+function renderResolutionButtons() {
+  const { selectedFamilyId, aspectRatio, selectedResolution } = getState();
+  const family = MODEL_FAMILIES.find(f => f.id === selectedFamilyId);
+  const resList = family ? (family.ratios[aspectRatio] || []) : [];
 
-let modelDropdownOpen = false;
-let modelDropdownHighlightIdx = -1;
-
-function openModelDropdown() {
-  modelDropdownOpen = true;
-  const dropdown = $('#modelDropdown');
-  dropdown.style.display = 'flex';
-  renderModelDropdownItems();
-  const search = $('#modelDropdownSearch');
-  search.value = '';
-  setTimeout(() => search.focus(), 50);
-}
-
-function closeModelDropdown() {
-  modelDropdownOpen = false;
-  $('#modelDropdown').style.display = 'none';
-  modelDropdownHighlightIdx = -1;
-}
-
-function toggleModelDropdown() {
-  if (modelDropdownOpen) closeModelDropdown();
-  else openModelDropdown();
-}
-
-function renderModelDropdownItems(filter = '') {
-  const { models, selectedModelId } = getState();
-  const list = $('#modelDropdownList');
-  const q = filter.toLowerCase().trim();
-
-  const filtered = q ? models.filter(m => m.id.toLowerCase().includes(q)) : models;
-
-  if (filtered.length === 0) {
-    list.innerHTML = `<div class="model-dropdown-empty">${models.length === 0 ? '模型列表为空，请点击下方刷新' : '无匹配模型'}</div>`;
-    modelDropdownHighlightIdx = -1;
-    return;
-  }
-
-  const groups = groupModelsByProvider(filtered);
-  const providerNames = Object.keys(groups).sort();
-
-  let html = '';
-  for (const provider of providerNames) {
-    html += `<div class="model-dropdown-group-label">${escapeHtml(provider)}</div>`;
-    for (const m of groups[provider]) {
-      const active = m.id === selectedModelId;
-      html += `<div class="model-dropdown-item${active ? ' highlighted' : ''}" data-mid="${escapeHtml(m.id)}">
-        <span class="md-check">${active ? '✓' : ''}</span>
-        <span class="md-name">${escapeHtml(m.id)}</span>
-        <span class="md-owner">${escapeHtml(m.owner || provider)}</span>
-      </div>`;
+  $$('.resolution-btn').forEach(btn => {
+    const res = btn.dataset.res;
+    const available = resList.includes(res);
+    btn.classList.toggle('active', res === selectedResolution && available);
+    if (!available) {
+      btn.setAttribute('disabled', '');
+      btn.style.display = 'none';
+    } else {
+      btn.removeAttribute('disabled');
+      btn.style.display = '';
     }
-  }
-
-  list.innerHTML = html;
-
-  // Set initial highlight
-  modelDropdownHighlightIdx = -1;
-  const items = $$('#modelDropdownList .model-dropdown-item');
-  if (selectedModelId && !q) {
-    const idx = Array.from(items).findIndex(el => el.dataset.mid === selectedModelId);
-    if (idx >= 0) {
-      modelDropdownHighlightIdx = idx;
-      items[idx].classList.add('highlighted');
-    }
-  }
-  if (modelDropdownHighlightIdx < 0 && items.length > 0) {
-    modelDropdownHighlightIdx = 0;
-    items[0].classList.add('highlighted');
-  }
-}
-
-function navigateModelDropdown(direction) {
-  const items = $$('#modelDropdownList .model-dropdown-item');
-  if (items.length === 0) return;
-
-  if (modelDropdownHighlightIdx >= 0 && modelDropdownHighlightIdx < items.length) {
-    items[modelDropdownHighlightIdx].classList.remove('highlighted');
-  }
-
-  modelDropdownHighlightIdx = (modelDropdownHighlightIdx + direction + items.length) % items.length;
-  items[modelDropdownHighlightIdx].classList.add('highlighted');
-  items[modelDropdownHighlightIdx].scrollIntoView({ block: 'nearest' });
-}
-
-function executeModelDropdownSelection() {
-  const items = $$('#modelDropdownList .model-dropdown-item');
-  if (modelDropdownHighlightIdx >= 0 && modelDropdownHighlightIdx < items.length) {
-    const mid = items[modelDropdownHighlightIdx].dataset.mid;
-    if (mid) {
-      selectModel(mid);
-      closeModelDropdown();
-    }
-  }
+  });
 }
 
 export function initPromptArea() {
@@ -399,7 +331,6 @@ export function initPromptArea() {
     popover.classList.remove('popover-enter');
     popover.classList.add('popover-exit');
     modelTag.classList.remove('open');
-    closeModelDropdown();
     const onAnimEnd = () => {
       popover.style.display = 'none';
       popover.classList.remove('popover-exit');
@@ -424,10 +355,6 @@ export function initPromptArea() {
     if (!e.target.closest('.settings-popover') && !e.target.closest('.model-tag')) {
       closePopover();
     }
-    // 点击下拉框外关闭下拉框（但保留 popover）
-    if (modelDropdownOpen && !e.target.closest('.model-dropdown') && !e.target.closest('.popover-model-row')) {
-      closeModelDropdown();
-    }
     // 点击 Monaco 展开区域外关闭 Monaco
     if (_monacoVisible && !e.target.closest('.monaco-expand') && e.target !== promptInput) {
       closeMonaco();
@@ -447,7 +374,12 @@ export function initPromptArea() {
     btn.addEventListener('click', () => {
       const ratio = btn.dataset.ratio;
       if (ratio) {
-        setState({ aspectRatio: ratio });
+        const { selectedFamilyId, selectedResolution } = getState();
+        if (selectedFamilyId) {
+          selectFamilyRatioResolution(selectedFamilyId, ratio, selectedResolution);
+        } else {
+          setState({ aspectRatio: ratio });
+        }
         syncSettingsState();
       }
     });
@@ -464,37 +396,42 @@ export function initPromptArea() {
     });
   });
 
-  // --- 弹出面板中的模型行切换下拉框 ---
-  const popoverModelRow = $('#popoverModelRow');
-  if (popoverModelRow) {
-    popoverModelRow.addEventListener('click', e => {
-      e.stopPropagation();
-      toggleModelDropdown();
+  // --- 模型系列按钮 ---
+  $$('.family-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const familyId = btn.dataset.family;
+      if (!familyId) return;
+      const family = MODEL_FAMILIES.find(f => f.id === familyId);
+      if (!family) return;
+      const { aspectRatio, selectedResolution } = getState();
+      // 当前比例对所选系列不可用时，自动选第一个可用比例
+      let ratio = aspectRatio;
+      if (!family.ratios[ratio]) {
+        ratio = Object.keys(family.ratios)[0];
+      }
+      let resolution = selectedResolution;
+      const resList = family.ratios[ratio];
+      if (!resList.includes(resolution)) {
+        resolution = resList[0];
+      }
+      selectFamilyRatioResolution(familyId, ratio, resolution);
+      syncSettingsState();
     });
-  }
-
-  // --- 模型下拉框事件 ---
-  const dropdownSearch = $('#modelDropdownSearch');
-  dropdownSearch.addEventListener('input', e => {
-    renderModelDropdownItems(e.target.value);
   });
 
-  dropdownSearch.addEventListener('keydown', e => {
-    if (e.key === 'ArrowDown') { e.preventDefault(); navigateModelDropdown(1); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); navigateModelDropdown(-1); }
-    else if (e.key === 'Enter') { e.preventDefault(); executeModelDropdownSelection(); }
-    else if (e.key === 'Escape') { e.preventDefault(); closeModelDropdown(); }
-  });
-
-  $('#modelDropdownList').addEventListener('click', e => {
-    const item = e.target.closest('.model-dropdown-item');
-    if (!item) return;
-    selectModel(item.dataset.mid);
-    closeModelDropdown();
-  });
-
-  $('#modelDropdownRefresh').addEventListener('click', () => {
-    fetchModels();
+  // --- 分辨率按钮 ---
+  $$('#resolutionRow .resolution-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const res = btn.dataset.res;
+      if (!res || btn.hasAttribute('disabled')) return;
+      const { selectedFamilyId, aspectRatio } = getState();
+      if (selectedFamilyId) {
+        selectFamilyRatioResolution(selectedFamilyId, aspectRatio, res);
+        syncSettingsState();
+      } else {
+        setState({ selectedResolution: res });
+      }
+    });
   });
 
   // --- 复用开关 ---
@@ -533,13 +470,10 @@ export function initPromptArea() {
   subscribe('reusePrompt', syncSettingsState);
   subscribe('reuseRef', syncSettingsState);
   subscribe('aspectRatio', syncSettingsState);
-  subscribe('selectedModelId', () => {
-    syncSettingsState();
-    if (modelDropdownOpen) renderModelDropdownItems($('#modelDropdownSearch').value);
-  });
-  subscribe('models', () => {
-    if (modelDropdownOpen) renderModelDropdownItems($('#modelDropdownSearch').value);
-  });
+  subscribe('selectedModelId', syncSettingsState);
+  subscribe('selectedFamilyId', syncSettingsState);
+  subscribe('selectedResolution', syncSettingsState);
+  subscribe('models', syncSettingsState);
   subscribe('statusText', (newStatus) => {
     if (!newStatus) return;
     // Remove generating glow when idle or error

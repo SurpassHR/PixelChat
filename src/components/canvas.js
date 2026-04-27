@@ -1,4 +1,4 @@
-import { getState, setState, subscribe, addDroppedImage, cancelGeneration, createStackFromItems, addToStack, removeFromStack, removeCanvasItemById } from '../store.js';
+import { getState, setState, subscribe, addDroppedImage, cancelGeneration, createStackFromItems, addToStack, removeFromStack, mergeStacks, removeCanvasItemById } from '../store.js';
 import { $$ } from '../domHelpers.js';
 import { openImageDetail } from './modal.js';
 import { showToast } from '../toast.js';
@@ -583,6 +583,8 @@ export async function handlePasteFromClipboard() {
 // --- Drag image to prompt area as reference (HTML5 DnD) ---
 
 let _dragSourceId = null;
+let _dragSourceStackId = null;
+let _dragSourceChildIndex = -1;
 
 function setupItemDrag() {
   surface.addEventListener('dragstart', e => {
@@ -600,6 +602,10 @@ function setupItemDrag() {
     }
 
     _dragSourceId = id;
+    // 记录拖拽源的 stack 信息（用于展开模式下的分离操作）
+    _dragSourceStackId = item._tempParentStackId || null;
+    _dragSourceChildIndex = typeof item._childIndex === 'number' ? item._childIndex : -1;
+
     // 创建干净的静态拖拽幽灵图，避免浏览器从动画 DOM 抓取产生残影
     const ghost = document.createElement('img');
     ghost.src = item.imageUrl;
@@ -622,10 +628,13 @@ function setupItemDrag() {
 
   surface.addEventListener('dragend', () => {
     _dragSourceId = null;
+    _dragSourceStackId = null;
+    _dragSourceChildIndex = -1;
     // 移除所有高亮
     document.querySelectorAll('.canvas-item').forEach(el => {
       el.classList.remove('drag-overlap-highlight');
     });
+    container.classList.remove('drag-over-detach');
   });
 }
 
@@ -653,8 +662,17 @@ function setupOverlapDetection() {
       document.querySelectorAll('.canvas-item').forEach(el => {
         el.classList.remove('drag-overlap-highlight');
       });
+      // 拖拽到空白区域：显示分离提示
+      if (!targetEl && _dragSourceStackId) {
+        container.classList.add('drag-over-detach');
+      } else {
+        container.classList.remove('drag-over-detach');
+      }
       return;
     }
+
+    // 有目标元素时清除分离提示
+    container.classList.remove('drag-over-detach');
 
     // 检查是否重叠
     if (checkOverlap(dragEl, targetEl)) {
@@ -665,6 +683,17 @@ function setupOverlapDetection() {
   });
 }
 
+// 获取 canvas 坐标（从页面坐标转换）
+function getCanvasCoords(el) {
+  const { left, top } = el.getBoundingClientRect();
+  const r = container.getBoundingClientRect();
+  const vp = getState().viewport;
+  return {
+    x: (left - r.left - vp.panX) / vp.zoom,
+    y: (top - r.top - vp.panY) / vp.zoom
+  };
+}
+
 // 处理拖拽合并
 function setupDragMerge() {
   surface.addEventListener('drop', async e => {
@@ -673,62 +702,80 @@ function setupDragMerge() {
     document.querySelectorAll('.canvas-item').forEach(el => {
       el.classList.remove('drag-overlap-highlight');
     });
+    container.classList.remove('drag-over-detach');
 
     if (!_dragSourceId) return;
 
     const targetEl = e.target.closest('.canvas-item');
-    if (!targetEl || targetEl.dataset.itemId === _dragSourceId) return;
-
     const dragItem = getState().canvasItems.find(i => i.itemId === _dragSourceId);
-    let targetItem = getState().canvasItems.find(i => i.itemId === targetEl.dataset.itemId);
 
-    // 如果处于展开模式，需要特殊处理：只允许与折叠的 stack 合并，不允许与临时项合并
-    if (_expandedStackId) {
-      // 如果目标项是临时项，不予合并
-      if (targetItem && targetItem._tempParentStackId) {
-        showToast('请先折叠堆叠组再合并', 'info');
-        return;
-      }
-      // 如果拖拽源是临时项，先折叠再合并（或忽略）
-      const dragTemp = getState().canvasItems.find(i => i.itemId === _dragSourceId);
-      if (dragTemp && dragTemp._tempParentStackId) {
-        showToast('请先折叠堆叠组再合并', 'info');
-        return;
-      }
-    }
-
-    if (!dragItem || !targetItem) return;
-
-    // 检查重叠（再次确认）
-    const dragEl = document.querySelector(`.canvas-item[data-item-id="${_dragSourceId}"]`);
-    if (dragEl && targetEl && checkOverlap(dragEl, targetEl)) {
-      // 执行合并
-      if (targetItem.type === 'stack') {
-        // 目标已经是 stack，将源图片加入该 stack
-        const stackId = targetItem.stackId;
-        const success = await addToStack(stackId, _dragSourceId);
-        if (success) {
-          showToast('已加入堆叠组', 'success');
-        } else {
-          showToast('加入失败', 'error');
-        }
+    // --- 场景：拖拽到空白区域 —— 分离（展开模式下的临时项） ---
+    if (!targetEl && _dragSourceStackId && _dragSourceChildIndex >= 0) {
+      const coords = getCanvasCoords(e.target.closest('#canvasSurface') || surface);
+      const success = await removeFromStack(_dragSourceStackId, _dragSourceChildIndex, coords.x, coords.y);
+      if (success) {
+        await refreshExpandedView();
+        showToast('已从堆叠组移出', 'success');
       } else {
-        // 两个普通图像，创建新 stack
-        const { left, top } = targetEl.getBoundingClientRect();
-        const container = document.getElementById('canvasContainer');
-        const rect = container.getBoundingClientRect();
-        const vp = getState().viewport;
-        const canvasX = (left - rect.left - vp.panX) / vp.zoom;
-        const canvasY = (top - rect.top - vp.panY) / vp.zoom;
-        const stack = createStackFromItems([_dragSourceId, targetItem.itemId], canvasX, canvasY);
-        if (stack) {
-          showToast('已创建堆叠组', 'success');
-        } else {
-          showToast('创建失败', 'error');
-        }
+        showToast('移出失败', 'error');
       }
       _dragSourceId = null;
+      _dragSourceStackId = null;
+      _dragSourceChildIndex = -1;
+      return;
     }
+
+    if (!targetEl || targetEl.dataset.itemId === _dragSourceId) return;
+
+    let targetItem = getState().canvasItems.find(i => i.itemId === targetEl.dataset.itemId);
+    if (!dragItem || !targetItem) return;
+
+    // --- 展开模式下不允许与临时项合并 ---
+    if (_expandedStackId) {
+      if (targetItem._tempParentStackId) {
+        showToast('请先折叠堆叠组再合并', 'info');
+        return;
+      }
+      if (dragItem._tempParentStackId) {
+        showToast('请先折叠堆叠组再合并', 'info');
+        return;
+      }
+    }
+
+    // 检查重叠
+    const dragEl = document.querySelector(`.canvas-item[data-item-id="${_dragSourceId}"]`);
+    if (!dragEl || !checkOverlap(dragEl, targetEl)) return;
+
+    // --- 场景 1：两个 stack 合并 ---
+    if (dragItem.type === 'stack' && targetItem.type === 'stack') {
+      const success = await mergeStacks(dragItem.stackId, targetItem.stackId);
+      showToast(success ? '已合并堆叠组' : '合并失败', success ? 'success' : 'error');
+      _dragSourceId = null;
+      return;
+    }
+
+    // --- 场景 2：拖拽 stack 到普通图像 ~ 将图像加入 stack ---
+    if (dragItem.type === 'stack' && targetItem.type !== 'stack') {
+      const success = await addToStack(dragItem.stackId, _dragSourceId);
+      showToast(success ? '已加入堆叠组' : '加入失败', success ? 'success' : 'error');
+      _dragSourceId = null;
+      return;
+    }
+
+    // --- 场景 3：目标已是 stack，将源加入 ---
+    if (targetItem.type === 'stack') {
+      const stackId = targetItem.stackId;
+      const success = await addToStack(stackId, _dragSourceId);
+      showToast(success ? '已加入堆叠组' : '加入失败', success ? 'success' : 'error');
+      _dragSourceId = null;
+      return;
+    }
+
+    // --- 场景 4：两个普通图像，创建新 stack ---
+    const coords = getCanvasCoords(targetEl);
+    const stack = await createStackFromItems([_dragSourceId, targetItem.itemId], coords.x, coords.y);
+    showToast(stack ? '已创建堆叠组' : '创建失败', stack ? 'success' : 'error');
+    _dragSourceId = null;
   });
 }
 

@@ -686,6 +686,21 @@ function handleDragStart(e, id, parentStackId = null) {
     }
     dragSourceParentStackId = parentStackId;
     e.dataTransfer.setData('text/plain', JSON.stringify({ sourceIds: dragSourceIds, parentStackId }));
+
+    // 额外设置 application/json 格式，携带 dataUrl 供 Canvas / PromptArea drop 使用
+    const { materials, materialStacks } = getState();
+    const firstId = dragSourceIds[0];
+    let dataUrl = '', dName = '素材';
+    const matItem = materials.find(m => m.id === firstId);
+    if (matItem) { dataUrl = matItem.dataUrl; dName = matItem.name; }
+    else {
+      const stk = materialStacks.find(s => s.id === firstId);
+      if (stk) { dataUrl = stk.thumbnail || ''; dName = stk.name; }
+    }
+    if (dataUrl) {
+      e.dataTransfer.setData('application/json', JSON.stringify({ name: dName, dataUrl }));
+    }
+
     e.dataTransfer.effectAllowed = 'move';
     
     // 设置自定义拖拽镜像
