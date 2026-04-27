@@ -88,6 +88,12 @@ async function syncToCanvas(tasks) {
       continue;
     }
 
+    // 实时更新 thinking 内容到占位符
+    if (task.thinking && match.thinking !== task.thinking) {
+      match.thinking = task.thinking;
+      setState({ canvasItems: [...getState().canvasItems] });
+    }
+
     if (task.status === 'completed') {
       if (task.image_url) {
         await addResultToCanvas({

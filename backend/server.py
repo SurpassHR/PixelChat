@@ -306,10 +306,16 @@ def _init_tasks_table():
             refs TEXT DEFAULT '[]',
             image_url TEXT DEFAULT '',
             error TEXT DEFAULT '',
+            thinking TEXT DEFAULT '',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         )
     ''')
+    # 迁移：为已有表添加 thinking 列
+    try:
+        conn.execute('ALTER TABLE tasks ADD COLUMN thinking TEXT DEFAULT \'\'')
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -338,12 +344,13 @@ def _load_tasks():
 def _save_task(task):
     conn = get_db()
     conn.execute('''
-        INSERT OR REPLACE INTO tasks (id, status, prompt, model, provider, refs, image_url, error, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO tasks (id, status, prompt, model, provider, refs, image_url, error, thinking, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         task['id'], task['status'], task['prompt'], task['model'], task['provider'],
         json.dumps(task.get('refs', [])),
         task.get('image_url', ''), task.get('error', ''),
+        task.get('thinking', ''),
         task['created_at'], task['updated_at']
     ))
     conn.commit()
@@ -521,6 +528,28 @@ def _execute_task(task_id):
 
                 with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                     resp_data = json.loads(resp.read().decode('utf-8'))
+
+                # 提取 reasoning_content / thinking 内容
+                thinking = ''
+                if isinstance(resp_data, dict):
+                    choices = resp_data.get('choices', [])
+                    if isinstance(choices, list) and choices:
+                        choice = choices[0]
+                        if isinstance(choice, dict):
+                            msg = choice.get('message', {})
+                            if isinstance(msg, dict):
+                                thinking = msg.get('reasoning_content', '') or msg.get('thinking', '') or ''
+                            if not thinking:
+                                thinking = choice.get('reasoning_content', '') or choice.get('thinking', '') or ''
+
+                # 先保存 thinking 到任务（让前端可以实时展示）
+                if thinking:
+                    with _tasks_lock:
+                        if task_id in _tasks:
+                            task = _tasks[task_id]
+                            task['thinking'] = thinking
+                            task['updated_at'] = time.time()
+                            _save_task(task)
 
                 image_url = _store_image_from_response(resp_data, base)
 
@@ -720,6 +749,7 @@ def create_task():
         'refs': data.get('refs', []),
         'image_url': '',
         'error': '',
+        'thinking': '',
         'created_at': now,
         'updated_at': now
     }
