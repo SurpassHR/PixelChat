@@ -2,7 +2,7 @@ import { fetchTasks } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
 import { openExpandModal } from './expandModal.js';
 
-let failedTasks = [];
+let logEntries = [];
 let detailOverlay = null;
 
 function timeAgo(ts) {
@@ -19,7 +19,7 @@ function renderLogList() {
   const clearBtn = $('#clearLogBtn');
   if (!container) return;
 
-  if (failedTasks.length === 0) {
+  if (logEntries.length === 0) {
     container.innerHTML = '<div class="tq-empty">暂无日志</div>';
     if (clearBtn) clearBtn.style.display = 'none';
     return;
@@ -27,39 +27,39 @@ function renderLogList() {
 
   if (clearBtn) clearBtn.style.display = '';
 
-  container.innerHTML = failedTasks.map((t, i) => {
+  container.innerHTML = logEntries.map((t, i) => {
+    const isSuccess = t.type === 'success';
     const promptShort = (t.prompt || '').length > 28
       ? escapeHtml(t.prompt.slice(0, 28)) + '…'
       : escapeHtml(t.prompt);
-    const errorShort = (t.error || '').length > 30
-      ? escapeHtml(t.error.slice(0, 30)) + '…'
-      : escapeHtml(t.error);
+    const metaParts = [t.model, timeAgo(t.created_at)].filter(Boolean);
+    const metaText = metaParts.join(' · ');
 
-    return `<div class="log-item" data-log-idx="${i}">
-      <div class="log-status">✗</div>
+    return `<div class="log-item ${isSuccess ? 'log-success' : 'log-error'}" data-log-idx="${i}">
+      <div class="log-status">${isSuccess ? '✓' : '✗'}</div>
       <div class="log-body">
         <div class="log-prompt" title="${escapeHtml(t.prompt)}">${promptShort}</div>
-        <div class="log-meta">${errorShort || '生成失败'} · ${t.model || ''} · ${timeAgo(t.created_at)}</div>
+        <div class="log-meta">${escapeHtml(metaText)}</div>
       </div>
     </div>`;
   }).join('');
 }
 
-function showDetail(task) {
+function showDetail(entry) {
   if (detailOverlay) detailOverlay.remove();
 
-  const time = new Date(task.created_at * 1000).toLocaleString();
-  const model = task.model || '-';
-  const provider = task.provider || '-';
-  const prompt = task.prompt || '';
-  const error = task.error || '未知错误';
+  const isSuccess = entry.type === 'success';
+  const time = new Date(entry.created_at * 1000).toLocaleString();
+  const model = entry.model || '-';
+  const provider = entry.provider || '-';
+  const prompt = entry.prompt || '';
 
   detailOverlay = document.createElement('div');
   detailOverlay.className = 'log-detail-overlay';
   detailOverlay.innerHTML = `
     <div class="log-detail-content">
       <div class="log-detail-header">
-        <h3>任务失败详情</h3>
+        <h3 style="color:${isSuccess ? 'var(--success)' : 'var(--danger)'}">${isSuccess ? '任务详情' : '任务失败详情'}</h3>
         <button class="modal-close" id="logDetailClose">×</button>
       </div>
       <div class="log-detail-body">
@@ -75,10 +75,17 @@ function showDetail(task) {
           <span class="log-detail-label">提示词</span>
           <div class="log-detail-value">${escapeHtml(prompt)}</div>
         </div>
+        ${isSuccess ? `
+        <div class="log-detail-field">
+          <span class="log-detail-label">状态</span>
+          <div class="log-detail-value log-detail-success">✓ 生成成功</div>
+        </div>
+        ` : `
         <div class="log-detail-field">
           <span class="log-detail-label">错误信息</span>
-          <div class="log-detail-value log-detail-error">${escapeHtml(error)}</div>
+          <div class="log-detail-value log-detail-error">${escapeHtml(entry.error || '未知错误')}</div>
         </div>
+        `}
       </div>
     </div>
   `;
@@ -97,19 +104,13 @@ function showDetail(task) {
   document.addEventListener('keydown', onKey);
 }
 
-function clearLog() {
-  failedTasks = [];
-  renderLogList();
-  if (detailOverlay) { detailOverlay.remove(); detailOverlay = null; }
-}
-
-export function addFailedTask(task) {
+function addLogEntry(task, type) {
   if (!task || !task.id) return;
-  if (task.status !== 'failed') return;
-  if (failedTasks.some(t => t.id === task.id)) return;
+  if (logEntries.some(t => t.id === task.id)) return;
 
-  failedTasks.unshift({
+  logEntries.unshift({
     id: task.id,
+    type,
     prompt: task.prompt || '',
     error: task.error || '',
     model: task.model || '',
@@ -117,53 +118,65 @@ export function addFailedTask(task) {
     created_at: task.created_at || Math.floor(Date.now() / 1000)
   });
 
-  // Keep max 200 entries
-  if (failedTasks.length > 200) failedTasks = failedTasks.slice(0, 200);
+  if (logEntries.length > 200) logEntries = logEntries.slice(0, 200);
 
   renderLogList();
 }
 
+export function addFailedTask(task) {
+  if (!task || !task.id) return;
+  if (task.status !== 'failed') return;
+  addLogEntry(task, 'error');
+}
+
+export function addSuccessTask(task) {
+  if (!task || !task.id) return;
+  if (task.status !== 'completed' || !task.image_url) return;
+  addLogEntry(task, 'success');
+}
+
 export async function initTaskLog() {
-  // Load existing failed tasks from backend on init
   try {
     const tasks = await fetchTasks();
     if (Array.isArray(tasks)) {
-      const failed = tasks.filter(t => t.status === 'failed');
-      if (failed.length > 0) {
-        failedTasks = failed.map(t => ({
+      const relevant = tasks.filter(t => t.status === 'failed' || t.status === 'completed');
+      if (relevant.length > 0) {
+        logEntries = relevant.map(t => ({
           id: t.id,
+          type: t.status === 'completed' ? 'success' : 'error',
           prompt: t.prompt || '',
           error: t.error || '',
           model: t.model || '',
           provider: t.provider || '',
           created_at: t.created_at || Math.floor(Date.now() / 1000)
         }));
-        // Sort newest first
-        failedTasks.sort((a, b) => b.created_at - a.created_at);
+        logEntries.sort((a, b) => b.created_at - a.created_at);
         renderLogList();
       }
     }
   } catch (e) {
-    console.log('[日志] 加载后端失败任务出错:', e.message);
+    console.log('[日志] 加载后端任务出错:', e.message);
   }
 
-  // Click delegation for log list
   const list = $('#taskLogList');
   if (list) {
     list.addEventListener('click', e => {
       const item = e.target.closest('.log-item');
       if (!item) return;
       const idx = parseInt(item.dataset.logIdx);
-      if (idx >= 0 && idx < failedTasks.length) {
-        showDetail(failedTasks[idx]);
+      if (idx >= 0 && idx < logEntries.length) {
+        showDetail(logEntries[idx]);
       }
     });
   }
 
-  // Clear button
   const clearBtn = $('#clearLogBtn');
   if (clearBtn) {
-    clearBtn.addEventListener('click', clearLog);
+    clearBtn.addEventListener('click', () => {
+      logEntries = [];
+      renderLogList();
+      if (detailOverlay) { detailOverlay.remove(); detailOverlay = null; }
+    });
   }
 
   // Expand button

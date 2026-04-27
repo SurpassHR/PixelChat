@@ -1,7 +1,7 @@
 import { getState, setState, fetchTasks, cancelBackendTask, addResultToCanvas } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
-import { addFailedTask } from './taskLog.js';
+import { addFailedTask, addSuccessTask } from './taskLog.js';
 import { openExpandModal } from './expandModal.js';
 
 let pollTimer = null;
@@ -83,6 +83,9 @@ async function syncToCanvas(tasks) {
       } else if (task.status === 'completed' && !task.image_url) {
         addFailedTask({ ...task, error: '响应中未找到图片' });
         processedIds.add(task.id);
+      } else if (task.status === 'completed' && task.image_url) {
+        addSuccessTask(task);
+        processedIds.add(task.id);
       } else if (task.status !== 'pending' && task.status !== 'running') {
         processedIds.add(task.id);
       }
@@ -100,6 +103,7 @@ async function syncToCanvas(tasks) {
 
     if (task.status === 'completed') {
       if (task.image_url) {
+        addSuccessTask(task);
         await addResultToCanvas({
           status: 'ok',
           imageUrl: task.image_url,

@@ -16,6 +16,7 @@
   --accent: #8ab4f8;
   --accent-dim: #4a6fa5;
   --danger: #f28b82;
+  --success: #34a853;
   --radius: 8px;
 }
 
@@ -366,8 +367,11 @@ body {
   transition: border-color 0.2s;
   cursor: pointer;
 }
-.log-item:hover {
+.log-item.log-error:hover {
   border-color: var(--danger);
+}
+.log-item.log-success:hover {
+  border-color: var(--success);
 }
 .log-status {
   flex-shrink: 0;
@@ -375,7 +379,12 @@ body {
   text-align: center;
   font-size: 14px;
   line-height: 1.4;
+}
+.log-error .log-status {
   color: var(--danger);
+}
+.log-success .log-status {
+  color: var(--success);
 }
 .log-body {
   flex: 1;
@@ -423,7 +432,6 @@ body {
 .log-detail-header h3 {
   font-size: 15px;
   font-weight: 600;
-  color: var(--danger);
 }
 .log-detail-body {
   padding: 16px 20px;
@@ -458,6 +466,10 @@ body {
 .log-detail-error {
   color: var(--danger);
   border: 1px solid rgba(242, 139, 130, 0.2);
+}
+.log-detail-success {
+  color: var(--success);
+  border: 1px solid rgba(52, 168, 83, 0.2);
 }
 
 .session-item {
