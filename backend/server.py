@@ -561,15 +561,31 @@ def _execute_task(task_id):
                 final_content = ''
 
                 with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-                    # 穿透 BufferedReader / SocketIO 等包装层找到底层 socket
-                    fp = resp.fp
-                    while hasattr(fp, 'raw') and not hasattr(fp, '_sock'):
-                        fp = fp.raw
-                    sock = getattr(fp, '_sock', None)
+                    # 穿透包装层找到底层 socket 设置读超时（多层 try/except 兜底）
+                    sock = None
+                    try:
+                        fp = resp.fp
+                        # BufferedReader → SocketIO → _sock
+                        if hasattr(fp, 'raw') and hasattr(fp.raw, '_sock'):
+                            sock = fp.raw._sock
+                        elif hasattr(fp, '_sock'):
+                            sock = fp._sock
+                    except Exception:
+                        pass
                     if sock:
-                        sock.settimeout(10)  # 初始 10s：快速检测无响应的生图服务
+                        try:
+                            sock.settimeout(10)  # 初始 10s：快速检测无响应的生图服务
+                        except Exception:
+                            sock = None
                     stream_start_time = time.time()
-                    print(f'[流] 任务 {task_id} 连接建立，等待首个 thinking chunk（10s 超时检测）...')
+                    if sock:
+                        print(f'[流] 任务 {task_id} 连接建立，socket 超时=10s，等待首个 thinking...')
+                    else:
+                        print(f'[流] 任务 {task_id} 连接建立（使用线程定时器），等待首个 thinking...')
+                        # 无法获取 socket 时用线程定时器兜底：10s 后关闭连接触发异常
+                        _close_timer = threading.Timer(10.0, lambda: resp.close())
+                        _close_timer.daemon = True
+                        _close_timer.start()
                     try:
                         for line in resp:
                             line = line.decode('utf-8', errors='replace').strip()
@@ -644,10 +660,15 @@ def _execute_task(task_id):
                             reasoning = delta.get('reasoning_content', '') or ''
                             if reasoning:
                                 thinking += reasoning
-                                # 首个 thinking chunk 到达 → 服务正常，socket 超时升至 60s
+                                # 首个 thinking chunk 到达 → 服务正常，取消定时器/升超时
                                 if sock:
                                     try:
                                         sock.settimeout(CHUNK_READ_TIMEOUT)
+                                    except Exception:
+                                        pass
+                                else:
+                                    try:
+                                        _close_timer.cancel()
                                     except Exception:
                                         pass
                                 # 带参考图时监测"打码验证"，15s 未出现则判定违规
