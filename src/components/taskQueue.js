@@ -84,7 +84,7 @@ async function syncToCanvas(tasks) {
       // No matching canvas item — if task is completed/failed/cancelled, mark processed
       if (task.status === 'failed') {
         if (task.error && task.error.startsWith('SERVICE_DOWN:')) {
-          showToast('生图服务可能已宕机，请重启服务', 'error', 5000);
+          showToast('生图服务可能已宕机，请重启服务', 'error', 0);
         }
         addFailedTask(task);
         processedIds.add(task.id);
@@ -133,7 +133,7 @@ async function syncToCanvas(tasks) {
       }
     } else if (task.status === 'failed') {
       if (task.error && task.error.startsWith('SERVICE_DOWN:')) {
-        showToast('生图服务可能已宕机，请重启服务', 'error', 5000);
+        showToast('生图服务可能已宕机，请重启服务', 'error', 0);
       }
       addFailedTask(task);
       await addResultToCanvas({
