@@ -308,13 +308,18 @@ def _init_tasks_table():
             image_url TEXT DEFAULT '',
             error TEXT DEFAULT '',
             thinking TEXT DEFAULT '',
+            retry_count INTEGER DEFAULT 0,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         )
     ''')
-    # 迁移：为已有表添加 thinking 列
+    # 迁移：为已有表添加新列
     try:
         conn.execute('ALTER TABLE tasks ADD COLUMN thinking TEXT DEFAULT \'\'')
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute('ALTER TABLE tasks ADD COLUMN retry_count INTEGER DEFAULT 0')
     except sqlite3.OperationalError:
         pass
     conn.commit()
@@ -326,6 +331,9 @@ def _load_tasks():
     now = time.time()
     for row in rows:
         task = dict(row)
+        # 兼容旧数据：无 retry_count 时默认 0
+        if 'retry_count' not in task:
+            task['retry_count'] = 0
         try:
             task['refs'] = json.loads(task.get('refs', '[]'))
         except (json.JSONDecodeError, TypeError):
@@ -345,13 +353,14 @@ def _load_tasks():
 def _save_task(task):
     conn = get_db()
     conn.execute('''
-        INSERT OR REPLACE INTO tasks (id, status, prompt, model, provider, refs, image_url, error, thinking, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO tasks (id, status, prompt, model, provider, refs, image_url, error, thinking, retry_count, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         task['id'], task['status'], task['prompt'], task['model'], task['provider'],
         json.dumps(task.get('refs', [])),
         task.get('image_url', ''), task.get('error', ''),
         task.get('thinking', ''),
+        task.get('retry_count', 0),
         task['created_at'], task['updated_at']
     ))
     conn.commit()
@@ -487,6 +496,15 @@ def _execute_task(task_id):
         last_error = None
 
         for attempt in range(1 + MAX_RETRIES):
+            # 重试时更新 retry_count，让前端可以轮询到重试状态
+            if attempt > 0:
+                with _tasks_lock:
+                    if task_id in _tasks:
+                        task = _tasks[task_id]
+                        task['retry_count'] = attempt
+                        task['updated_at'] = time.time()
+                        _save_task(task)
+
             try:
                 settings = kv_get('settings', {})
                 providers = settings.get('providers', {})
@@ -518,19 +536,27 @@ def _execute_task(task_id):
                 }
 
                 encoded = json.dumps(body).encode('utf-8')
+                headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': f'Bearer {key}'
+                }
+                # 重试时强制关闭连接，避免复用失效的 keep-alive 连接
+                if attempt > 0:
+                    headers['Connection'] = 'close'
+
                 req = urllib.request.Request(
                     f'{base}/v1/chat/completions',
                     data=encoded,
-                    headers={
-                        'Content-Type': 'application/json',
-                        'Authorization': f'Bearer {key}'
-                    },
+                    headers=headers,
                     method='POST'
                 )
 
                 # 带参考图时使用较短超时，长时间无响应判定为内容违规
                 has_refs = bool(refs)
                 req_timeout = REF_IMAGE_TIMEOUT if has_refs else REQUEST_TIMEOUT
+
+                print(f'[任务] {task_id} 发送请求: {base}/v1/chat/completions '
+                      f'(model={task["model"]}, attempt={attempt + 1}/{1 + MAX_RETRIES})')
 
                 thinking = ''
                 final_content = ''
@@ -611,7 +637,7 @@ def _execute_task(task_id):
                     last_error = f'HTTP {status_code}: {err_body}'
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
                     print(f'[重试] 任务 {task_id} HTTP {status_code}，'
-                          f'第 {attempt + 1}/{MAX_RETRIES} 次，{delay:.0f}s 后重试')
+                          f'第 {attempt + 1}/{MAX_RETRIES} 次重试，{delay:.0f}s 后重试 -> {base}/v1/chat/completions')
                     time.sleep(delay)
                     continue
                 with _tasks_lock:
@@ -641,7 +667,7 @@ def _execute_task(task_id):
                     last_error = err_msg
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
                     print(f'[重试] 任务 {task_id} 网络错误: {err_msg}，'
-                          f'第 {attempt + 1}/{MAX_RETRIES} 次，{delay:.0f}s 后重试')
+                          f'第 {attempt + 1}/{MAX_RETRIES} 次重试，{delay:.0f}s 后重试 -> {base}/v1/chat/completions')
                     time.sleep(delay)
                     continue
                 with _tasks_lock:
@@ -658,8 +684,9 @@ def _execute_task(task_id):
                 if attempt < MAX_RETRIES:
                     last_error = err_msg
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
+                    target_url = f'{base}/v1/chat/completions' if 'base' in locals() else '未知'
                     print(f'[重试] 任务 {task_id} 错误: {err_msg}，'
-                          f'第 {attempt + 1}/{MAX_RETRIES} 次，{delay:.0f}s 后重试')
+                          f'第 {attempt + 1}/{MAX_RETRIES} 次重试，{delay:.0f}s 后重试 -> {target_url}')
                     time.sleep(delay)
                     continue
                 with _tasks_lock:
@@ -801,6 +828,7 @@ def create_task():
         'image_url': '',
         'error': '',
         'thinking': '',
+        'retry_count': 0,
         'created_at': now,
         'updated_at': now
     }

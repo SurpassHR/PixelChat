@@ -10,8 +10,9 @@ let renderedIds = new Set();
 
 // ── Render ──
 
-function getStatusIcon(status) {
-  switch (status) {
+function getStatusIcon(task) {
+  if (task.status === 'running' && task.retry_count > 0) return '↻';
+  switch (task.status) {
     case 'running': return '●';
     case 'pending': return '○';
     case 'completed': return '✓';
@@ -21,14 +22,18 @@ function getStatusIcon(status) {
   }
 }
 
-function getStatusText(status) {
-  switch (status) {
+function getStatusText(task) {
+  // 重试中：running 状态且 retry_count > 0
+  if (task.status === 'running' && task.retry_count > 0) {
+    return `正在重试 (${task.retry_count}/2)`;
+  }
+  switch (task.status) {
     case 'running': return '正在生成...';
     case 'pending': return '等待中';
     case 'completed': return '已完成';
     case 'failed': return '失败';
     case 'cancelled': return '已取消';
-    default: return status;
+    default: return task.status;
   }
 }
 
@@ -53,10 +58,10 @@ function renderTaskQueue(tasks) {
     const canCancel = t.status === 'pending' || t.status === 'running';
 
     return `<div class="tq-item" data-task-id="${t.id}" data-status="${t.status}">
-      <div class="tq-status tq-status-${t.status}">${getStatusIcon(t.status)}</div>
+      <div class="tq-status tq-status-${t.status}">${getStatusIcon(t)}</div>
       <div class="tq-body">
         <div class="tq-prompt" title="${escapeHtml(t.prompt)}">${promptShort}</div>
-        <div class="tq-meta">${getStatusText(t.status)}</div>
+        <div class="tq-meta">${getStatusText(t)}</div>
         ${t.error ? `<div class="tq-error" title="${escapeHtml(t.error)}">${escapeHtml(t.error)}</div>` : ''}
       </div>
       ${canCancel ? `<button class="tq-cancel" data-task-id="${t.id}" title="取消任务">×</button>` : ''}
