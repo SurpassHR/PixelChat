@@ -118,7 +118,7 @@ export function renderCanvas() {
         }
       }
     }
-    el.draggable = true;
+    el.draggable = !item.generating;
 
     if (item.generating) {
       const hasThinking = item.thinking && item.thinking.length > 0;
@@ -565,9 +565,25 @@ function setupItemDrag() {
     if (!item && _expandedStackId) {
       item = _expandedItems.find(i => i.itemId === id);
     }
-    if (!item || !item.imageUrl) return;
+    if (!item || !item.imageUrl) {
+      e.preventDefault();
+      return;
+    }
 
     _dragSourceId = id;
+    // 创建干净的静态拖拽幽灵图，避免浏览器从动画 DOM 抓取产生残影
+    const ghost = document.createElement('img');
+    ghost.src = item.imageUrl;
+    ghost.style.width = '120px';
+    ghost.style.height = '120px';
+    ghost.style.objectFit = 'cover';
+    ghost.style.borderRadius = '8px';
+    ghost.style.position = 'absolute';
+    ghost.style.top = '-1000px';
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 60, 60);
+    setTimeout(() => document.body.removeChild(ghost), 0);
+
     e.dataTransfer.setData('application/json', JSON.stringify({
       name: '画布图片: ' + (item.prompt ? item.prompt.slice(0, 30) : ''),
       dataUrl: item.imageUrl
