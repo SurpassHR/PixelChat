@@ -2,6 +2,57 @@ import { getState, setState, subscribe, appendMessage, addDroppedImage, addMater
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
 import { selectModel, fetchModels, groupModelsByProvider } from './modelSelector.js';
+import * as monaco from 'monaco-editor';
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
+import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
+import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
+
+// Configure Monaco workers for Vite
+self.MonacoEnvironment = {
+  getWorker(_, label) {
+    if (label === 'json') return new jsonWorker();
+    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker();
+    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker();
+    if (label === 'typescript' || label === 'javascript') return new tsWorker();
+    return new editorWorker();
+  }
+};
+
+// Define Darkroom Luminary theme for Monaco
+monaco.editor.defineTheme('darkroom', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: [
+    { token: '', foreground: 'e0e0e0' },
+    { token: 'comment', foreground: '6b5b3a', fontStyle: 'italic' },
+    { token: 'keyword', foreground: 'e8b86d', fontStyle: 'bold' },
+    { token: 'string', foreground: 'c49a4a' },
+    { token: 'number', foreground: 'd4a84b' },
+    { token: 'type', foreground: 'c9953e' },
+  ],
+  colors: {
+    'editor.background': '#080808',
+    'editor.foreground': '#e0e0e0',
+    'editor.lineHighlightBackground': '#1a1815',
+    'editor.selectionBackground': '#3d2e0f',
+    'editorCursor.foreground': '#e8b86d',
+    'editorLineNumber.foreground': '#8b691480',
+    'editorLineNumber.activeForeground': '#e8b86d',
+    'editor.selectionHighlightBackground': '#3d2e0f40',
+    'editor.inactiveSelectionBackground': '#3d2e0f30',
+    'editorWidget.background': '#1a1815',
+    'editorWidget.border': '#e8b86d20',
+    'input.background': '#1a1815',
+    'input.border': '#e8b86d20',
+    'focusBorder': '#e8b86d40',
+    'scrollbar.shadow': '#00000000',
+    'scrollbarSlider.background': '#e8b86d10',
+    'scrollbarSlider.hoverBackground': '#e8b86d20',
+    'scrollbarSlider.activeBackground': '#e8b86d30',
+  }
+});
 
 function renderAttachments() {
   const container = $('#attachments');
@@ -29,8 +80,23 @@ function removeRefImage(index) {
   setState({ refImages: [...refImages] });
 }
 
+// Module-scoped Monaco state (shared with initPromptArea)
+let _monacoEditor = null;
+let _monacoVisible = false;
+
 async function generate() {
   const { selectedModelId, selectedProvider, refImages, reusePrompt, reuseRef, batchSize } = getState();
+
+  // Sync Monaco content before generating, then collapse
+  if (_monacoVisible && _monacoEditor) {
+    $('#promptInput').value = _monacoEditor.getValue();
+    // Collapse Monaco immediately (no animation for responsiveness)
+    const expand = $('#monacoExpand');
+    if (expand) { expand.style.display = 'none'; expand.classList.remove('collapsing'); }
+    $('#promptInput').style.opacity = '';
+    _monacoVisible = false;
+  }
+
   const prompt = $('#promptInput').value.trim();
 
   if (!selectedModelId) {
@@ -41,6 +107,10 @@ async function generate() {
     setState({ statusText: '请输入提示词' });
     return;
   }
+
+  // Activate generating glow
+  const inputRow = document.querySelector('.prompt-input-row');
+  if (inputRow) inputRow.classList.add('generating');
 
   setState({ statusText: `正在提交 ${batchSize} 个任务...` });
 
@@ -111,7 +181,7 @@ function syncSettingsState() {
 
   // 倍数按钮
   $$('.multiplier-btn').forEach(btn => {
-    btn.classList.toggle('active', parseInt(btn.dataset.mult) === batchSize);
+    btn.classList.toggle('active', parseInt(btn.dataset.mult) <= batchSize);
   });
 
   // 复用开关
@@ -221,42 +291,146 @@ function executeModelDropdownSelection() {
 export function initPromptArea() {
   const popover = $('#settingsPopover');
   const modelTag = $('#modelTag');
+  const promptInput = $('#promptInput');
+  const monacoExpand = $('#monacoExpand');
+  const monacoContainer = $('#monacoContainer');
+
+  // --- Monaco editor management ---
+  function openMonaco() {
+    if (_monacoVisible) return;
+    _monacoVisible = true;
+    monacoExpand.style.display = 'flex';
+    monacoExpand.classList.remove('collapsing');
+
+    if (!_monacoEditor) {
+      _monacoEditor = monaco.editor.create(monacoContainer, {
+        value: promptInput.value,
+        language: 'markdown',
+        theme: 'darkroom',
+        fontSize: 13,
+        fontFamily: "'JetBrains Mono', 'IBM Plex Mono', monospace",
+        lineHeight: 22,
+        minimap: { enabled: false },
+        lineNumbers: 'off',
+        glyphMargin: false,
+        folding: false,
+        renderLineHighlight: 'line',
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
+        automaticLayout: true,
+        overviewRulerLanes: 0,
+        hideCursorInOverviewRuler: true,
+        overviewRulerBorder: false,
+        padding: { top: 12, bottom: 12 },
+        scrollbar: {
+          verticalScrollbarSize: 4,
+          horizontalScrollbarSize: 4,
+        },
+        suggest: { showWords: false, showSnippets: false },
+        quickSuggestions: false,
+        parameterHints: { enabled: false },
+      });
+    } else {
+      _monacoEditor.setValue(promptInput.value);
+      _monacoEditor.layout();
+    }
+
+    promptInput.style.opacity = '0';
+    _monacoEditor.focus();
+  }
+
+  function closeMonaco() {
+    if (!_monacoVisible) return;
+    _monacoVisible = false;
+
+    if (_monacoEditor) {
+      promptInput.value = _monacoEditor.getValue();
+    }
+
+    monacoExpand.classList.add('collapsing');
+    const onAnimEnd = () => {
+      monacoExpand.style.display = 'none';
+      monacoExpand.classList.remove('collapsing');
+      monacoExpand.removeEventListener('animationend', onAnimEnd);
+    };
+    monacoExpand.addEventListener('animationend', onAnimEnd);
+    promptInput.style.opacity = '';
+  }
 
   // --- 生成操作 ---
   $('#sendBtn').addEventListener('click', generate);
 
-  $('#promptInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+  // --- Prompt input events ---
+  promptInput.addEventListener('focus', () => {
+    openMonaco();
+  });
+
+  promptInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !_monacoVisible) {
       e.preventDefault();
       generate();
+    }
+  });
+
+  // Monaco keyboard: ESC to close
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && _monacoVisible) {
+      // Check if Monaco's own suggest widget is open
+      if (document.querySelector('.monaco-editor .suggest-widget.visible')) return;
+      e.preventDefault();
+      closeMonaco();
     }
   });
 
   // --- 初始同步 ---
   syncSettingsState();
 
-  // --- 弹出面板开/关 ---
+  // --- 弹出面板开/关（带动画） ---
+  function openPopover() {
+    popover.style.display = 'flex';
+    popover.classList.remove('popover-exit');
+    void popover.offsetWidth;
+    popover.classList.add('popover-enter');
+    modelTag.classList.add('open');
+  }
+
+  function closePopover() {
+    if (popover.style.display === 'none') return;
+    popover.classList.remove('popover-enter');
+    popover.classList.add('popover-exit');
+    modelTag.classList.remove('open');
+    closeModelDropdown();
+    const onAnimEnd = () => {
+      popover.style.display = 'none';
+      popover.classList.remove('popover-exit');
+      popover.removeEventListener('animationend', onAnimEnd);
+    };
+    popover.addEventListener('animationend', onAnimEnd);
+  }
+
+  function isPopoverOpen() {
+    return popover.classList.contains('popover-enter') ||
+      (!popover.classList.contains('popover-exit') && popover.style.display === 'flex');
+  }
+
   modelTag.addEventListener('click', e => {
     e.stopPropagation();
-    const isOpen = popover.style.display !== 'none';
-    popover.style.display = isOpen ? 'none' : 'flex';
-    if (!isOpen) modelTag.classList.add('open');
-    else {
-      modelTag.classList.remove('open');
-      closeModelDropdown();
-    }
+    if (isPopoverOpen()) closePopover();
+    else openPopover();
   });
 
   // 点击面板外关闭
   document.addEventListener('click', e => {
     if (!e.target.closest('.settings-popover') && !e.target.closest('.model-tag')) {
-      popover.style.display = 'none';
-      modelTag.classList.remove('open');
-      closeModelDropdown();
+      closePopover();
     }
     // 点击下拉框外关闭下拉框（但保留 popover）
     if (modelDropdownOpen && !e.target.closest('.model-dropdown') && !e.target.closest('.popover-model-row')) {
       closeModelDropdown();
+    }
+    // 点击 Monaco 展开区域外关闭 Monaco
+    if (_monacoVisible && !e.target.closest('.monaco-expand') && e.target !== promptInput) {
+      closeMonaco();
     }
   });
 
@@ -365,6 +539,14 @@ export function initPromptArea() {
   });
   subscribe('models', () => {
     if (modelDropdownOpen) renderModelDropdownItems($('#modelDropdownSearch').value);
+  });
+  subscribe('statusText', (newStatus) => {
+    if (!newStatus) return;
+    // Remove generating glow when idle or error
+    if (newStatus === '就绪' || newStatus.includes('失败') || newStatus.includes('错误')) {
+      const row = document.querySelector('.prompt-input-row');
+      if (row) row.classList.remove('generating');
+    }
   });
 
   // --- 附件移除 ---
