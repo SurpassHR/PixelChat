@@ -131,12 +131,22 @@
             <button class="multiplier-btn" data-mult="4">×4</button>
           </div>
         </div>
-        <div class="popover-section">
+        <div class="popover-section popover-model-section">
           <div class="popover-section-label">模型</div>
           <div class="popover-model-row" id="popoverModelRow">
             <span class="popover-model-icon">✦</span>
             <span class="popover-model-name" id="popoverModelName">加载中...</span>
             <span class="popover-model-arrow">▾</span>
+          </div>
+          <!-- Model Dropdown -->
+          <div class="model-dropdown" id="modelDropdown" style="display:none">
+            <div class="model-dropdown-search">
+              <input type="text" id="modelDropdownSearch" placeholder="搜索模型..." autocomplete="off" spellcheck="false">
+            </div>
+            <div class="model-dropdown-list" id="modelDropdownList"></div>
+            <div class="model-dropdown-footer">
+              <button class="model-dropdown-refresh" id="modelDropdownRefresh">↻ 刷新模型列表</button>
+            </div>
           </div>
         </div>
         <div class="popover-toggles">

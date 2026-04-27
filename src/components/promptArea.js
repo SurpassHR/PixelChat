@@ -1,7 +1,7 @@
 import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
-import { openModelSelector } from './commandPalette.js';
+import { selectModel, fetchModels, groupModelsByProvider } from './modelSelector.js';
 
 function renderAttachments() {
   const container = $('#attachments');
@@ -121,6 +121,103 @@ function syncSettingsState() {
   if (refCb) refCb.checked = reuseRef;
 }
 
+// --- 模型下拉框 ---
+
+let modelDropdownOpen = false;
+let modelDropdownHighlightIdx = -1;
+
+function openModelDropdown() {
+  modelDropdownOpen = true;
+  const dropdown = $('#modelDropdown');
+  dropdown.style.display = 'flex';
+  renderModelDropdownItems();
+  const search = $('#modelDropdownSearch');
+  search.value = '';
+  setTimeout(() => search.focus(), 50);
+}
+
+function closeModelDropdown() {
+  modelDropdownOpen = false;
+  $('#modelDropdown').style.display = 'none';
+  modelDropdownHighlightIdx = -1;
+}
+
+function toggleModelDropdown() {
+  if (modelDropdownOpen) closeModelDropdown();
+  else openModelDropdown();
+}
+
+function renderModelDropdownItems(filter = '') {
+  const { models, selectedModelId } = getState();
+  const list = $('#modelDropdownList');
+  const q = filter.toLowerCase().trim();
+
+  const filtered = q ? models.filter(m => m.id.toLowerCase().includes(q)) : models;
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div class="model-dropdown-empty">${models.length === 0 ? '模型列表为空，请点击下方刷新' : '无匹配模型'}</div>`;
+    modelDropdownHighlightIdx = -1;
+    return;
+  }
+
+  const groups = groupModelsByProvider(filtered);
+  const providerNames = Object.keys(groups).sort();
+
+  let html = '';
+  for (const provider of providerNames) {
+    html += `<div class="model-dropdown-group-label">${escapeHtml(provider)}</div>`;
+    for (const m of groups[provider]) {
+      const active = m.id === selectedModelId;
+      html += `<div class="model-dropdown-item${active ? ' highlighted' : ''}" data-mid="${escapeHtml(m.id)}">
+        <span class="md-check">${active ? '✓' : ''}</span>
+        <span class="md-name">${escapeHtml(m.id)}</span>
+        <span class="md-owner">${escapeHtml(m.owner || provider)}</span>
+      </div>`;
+    }
+  }
+
+  list.innerHTML = html;
+
+  // Set initial highlight
+  modelDropdownHighlightIdx = -1;
+  const items = $$('#modelDropdownList .model-dropdown-item');
+  if (selectedModelId && !q) {
+    const idx = Array.from(items).findIndex(el => el.dataset.mid === selectedModelId);
+    if (idx >= 0) {
+      modelDropdownHighlightIdx = idx;
+      items[idx].classList.add('highlighted');
+    }
+  }
+  if (modelDropdownHighlightIdx < 0 && items.length > 0) {
+    modelDropdownHighlightIdx = 0;
+    items[0].classList.add('highlighted');
+  }
+}
+
+function navigateModelDropdown(direction) {
+  const items = $$('#modelDropdownList .model-dropdown-item');
+  if (items.length === 0) return;
+
+  if (modelDropdownHighlightIdx >= 0 && modelDropdownHighlightIdx < items.length) {
+    items[modelDropdownHighlightIdx].classList.remove('highlighted');
+  }
+
+  modelDropdownHighlightIdx = (modelDropdownHighlightIdx + direction + items.length) % items.length;
+  items[modelDropdownHighlightIdx].classList.add('highlighted');
+  items[modelDropdownHighlightIdx].scrollIntoView({ block: 'nearest' });
+}
+
+function executeModelDropdownSelection() {
+  const items = $$('#modelDropdownList .model-dropdown-item');
+  if (modelDropdownHighlightIdx >= 0 && modelDropdownHighlightIdx < items.length) {
+    const mid = items[modelDropdownHighlightIdx].dataset.mid;
+    if (mid) {
+      selectModel(mid);
+      closeModelDropdown();
+    }
+  }
+}
+
 export function initPromptArea() {
   const popover = $('#settingsPopover');
   const modelTag = $('#modelTag');
@@ -144,7 +241,10 @@ export function initPromptArea() {
     const isOpen = popover.style.display !== 'none';
     popover.style.display = isOpen ? 'none' : 'flex';
     if (!isOpen) modelTag.classList.add('open');
-    else modelTag.classList.remove('open');
+    else {
+      modelTag.classList.remove('open');
+      closeModelDropdown();
+    }
   });
 
   // 点击面板外关闭
@@ -152,6 +252,11 @@ export function initPromptArea() {
     if (!e.target.closest('.settings-popover') && !e.target.closest('.model-tag')) {
       popover.style.display = 'none';
       modelTag.classList.remove('open');
+      closeModelDropdown();
+    }
+    // 点击下拉框外关闭下拉框（但保留 popover）
+    if (modelDropdownOpen && !e.target.closest('.model-dropdown') && !e.target.closest('.popover-model-row')) {
+      closeModelDropdown();
     }
   });
 
@@ -185,16 +290,38 @@ export function initPromptArea() {
     });
   });
 
-  // --- 弹出面板中的模型行打开模型选择面板 ---
+  // --- 弹出面板中的模型行切换下拉框 ---
   const popoverModelRow = $('#popoverModelRow');
   if (popoverModelRow) {
     popoverModelRow.addEventListener('click', e => {
       e.stopPropagation();
-      popover.style.display = 'none';
-      modelTag.classList.remove('open');
-      openModelSelector();
+      toggleModelDropdown();
     });
   }
+
+  // --- 模型下拉框事件 ---
+  const dropdownSearch = $('#modelDropdownSearch');
+  dropdownSearch.addEventListener('input', e => {
+    renderModelDropdownItems(e.target.value);
+  });
+
+  dropdownSearch.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); navigateModelDropdown(1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); navigateModelDropdown(-1); }
+    else if (e.key === 'Enter') { e.preventDefault(); executeModelDropdownSelection(); }
+    else if (e.key === 'Escape') { e.preventDefault(); closeModelDropdown(); }
+  });
+
+  $('#modelDropdownList').addEventListener('click', e => {
+    const item = e.target.closest('.model-dropdown-item');
+    if (!item) return;
+    selectModel(item.dataset.mid);
+    closeModelDropdown();
+  });
+
+  $('#modelDropdownRefresh').addEventListener('click', () => {
+    fetchModels();
+  });
 
   // --- 复用开关 ---
   const promptToggle = $('#popoverReusePrompt');
@@ -232,7 +359,13 @@ export function initPromptArea() {
   subscribe('reusePrompt', syncSettingsState);
   subscribe('reuseRef', syncSettingsState);
   subscribe('aspectRatio', syncSettingsState);
-  subscribe('selectedModelId', syncSettingsState);
+  subscribe('selectedModelId', () => {
+    syncSettingsState();
+    if (modelDropdownOpen) renderModelDropdownItems($('#modelDropdownSearch').value);
+  });
+  subscribe('models', () => {
+    if (modelDropdownOpen) renderModelDropdownItems($('#modelDropdownSearch').value);
+  });
 
   // --- 附件移除 ---
   $('#attachments').addEventListener('click', e => {
