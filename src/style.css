@@ -119,6 +119,68 @@ body {
   color: var(--accent);
 }
 
+/* Expand section button (sidebar sections) */
+.expand-task-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text2);
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+
+.expand-task-btn:hover {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* Expand modal */
+.expand-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.expand-modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 80vw;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.expand-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.expand-modal-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.expand-modal-body {
+  flex: 1;
+  overflow: auto;
+}
+
 .history-list {
   flex: 1;
   overflow-y: auto;

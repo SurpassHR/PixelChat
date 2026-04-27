@@ -14,6 +14,7 @@
       <div class="history-header">
         <h2>聊天记录</h2>
         <div style="display:flex;gap:6px">
+          <button class="new-session-btn" id="expandHistoryBtn" title="展开" style="font-size:14px;">⤢</button>
           <button class="new-session-btn" id="settingsBtn" title="设置" style="font-size:16px;">⚙</button>
           <button class="new-session-btn" id="newSessionBtn" title="新建会话">+</button>
         </div>
@@ -24,7 +25,10 @@
     <div class="taskqueue-section" id="taskLogSection">
       <div class="taskqueue-header">
         <h2>日志</h2>
-        <button class="clear-log-btn" id="clearLogBtn" title="清空日志" style="display:none">清空</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="expand-task-btn" id="expandLogBtn" title="展开">⤢</button>
+          <button class="clear-log-btn" id="clearLogBtn" title="清空日志" style="display:none">清空</button>
+        </div>
       </div>
       <div class="taskqueue-list" id="taskLogList">
         <div class="tq-empty">暂无日志</div>
@@ -34,6 +38,7 @@
     <div class="taskqueue-section">
       <div class="taskqueue-header">
         <h2>任务队列</h2>
+        <button class="expand-task-btn" id="expandQueueBtn" title="展开">⤢</button>
       </div>
       <div class="taskqueue-list" id="taskQueueList">
         <div class="tq-empty">暂无任务</div>

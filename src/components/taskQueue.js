@@ -2,6 +2,7 @@ import { getState, setState, fetchTasks, cancelBackendTask, addResultToCanvas } 
 import { $, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
 import { addFailedTask } from './taskLog.js';
+import { openExpandModal } from './expandModal.js';
 
 let pollTimer = null;
 let processedIds = new Set();
@@ -179,6 +180,14 @@ export function initTaskQueue() {
       } catch (err) {
         showToast('取消失败: ' + err.message, 'error');
       }
+    });
+  }
+
+  // Expand button
+  const expandBtn = $('#expandQueueBtn');
+  if (expandBtn) {
+    expandBtn.addEventListener('click', () => {
+      openExpandModal('任务队列', $('#taskQueueList'));
     });
   }
 

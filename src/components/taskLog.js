@@ -1,5 +1,6 @@
 import { fetchTasks } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
+import { openExpandModal } from './expandModal.js';
 
 let failedTasks = [];
 let detailOverlay = null;
@@ -163,5 +164,13 @@ export async function initTaskLog() {
   const clearBtn = $('#clearLogBtn');
   if (clearBtn) {
     clearBtn.addEventListener('click', clearLog);
+  }
+
+  // Expand button
+  const expandBtn = $('#expandLogBtn');
+  if (expandBtn) {
+    expandBtn.addEventListener('click', () => {
+      openExpandModal('日志', $('#taskLogList'));
+    });
   }
 }
