@@ -159,7 +159,10 @@ export function renderCanvas() {
       // 用 textContent 设置 thinking 文本，避免 XSS
       if (hasThinking) {
         const thinkingEl = el.querySelector('.gen-thinking');
-        if (thinkingEl) thinkingEl.textContent = item.thinking;
+        if (thinkingEl) {
+          const lines = item.thinking.split('\n').filter(l => l.trim());
+          thinkingEl.textContent = lines.length ? lines[lines.length - 1] : '';
+        }
       }
     } else if (item.status === 'ok') {
       if (item.type === 'stack') {
