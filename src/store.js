@@ -441,6 +441,7 @@ export function addGeneratingPlaceholder(prompt, refImages, taskId) {
     status: 'generating',
     startTime: Date.now(),
     error: '',
+    thinking: '',
     type: 'image'
   };
   state.canvasItems.push(item);
@@ -784,6 +785,7 @@ export async function rebuildCanvasFromSession() {
         status: 'generating',
         startTime: pt.startTime || Date.now(),
         error: '',
+        thinking: pt.thinking || '',
         type: 'image'
       });
     });

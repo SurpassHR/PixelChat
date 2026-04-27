@@ -89,6 +89,15 @@ async function syncToCanvas(tasks) {
       continue;
     }
 
+    // 实时更新 thinking 内容到占位符
+    if (task.thinking && match.thinking !== task.thinking) {
+      match.thinking = task.thinking;
+      setState({ canvasItems: [...getState().canvasItems] });
+      // 首次展示 thinking 时跳过本轮完成处理，让用户有足够时间看到思考内容
+      // 下一轮轮询时 thinking 已同步，将正常处理完成/失败
+      continue;
+    }
+
     if (task.status === 'completed') {
       if (task.image_url) {
         await addResultToCanvas({
