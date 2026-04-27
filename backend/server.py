@@ -563,23 +563,134 @@ def _execute_task(task_id):
                 with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                     sock = resp.fp._sock
                     if sock:
-                        sock.settimeout(CHUNK_READ_TIMEOUT)
+                        sock.settimeout(10)  # 初始 10s：快速检测无响应的生图服务
                     stream_start_time = time.time()
-                    for line in resp:
-                        line = line.decode('utf-8', errors='replace').strip()
-                        if not line or not line.startswith('data:'):
-                            continue
-                        data_str = line[5:].strip()
-                        if data_str == '[DONE]':
-                            break
-                        try:
-                            chunk = json.loads(data_str)
-                        except json.JSONDecodeError:
-                            continue
+                    print(f'[流] 任务 {task_id} 连接建立，等待首个 thinking chunk（10s 超时检测）...')
+                    try:
+                        for line in resp:
+                            line = line.decode('utf-8', errors='replace').strip()
+                            if not line or not line.startswith('data:'):
+                                continue
+                            data_str = line[5:].strip()
+                            if data_str == '[DONE]':
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
 
-                        # 10s 无思考内容判定生图服务宕机（必须在所有 continue 之前检查）
-                        if not thinking and time.time() - stream_start_time > 10:
-                            print(f'[宕机] 任务 {task_id} 10s 未收到思考内容，判定服务宕机')
+                            # 10s 无思考内容判定生图服务宕机（必须在所有 continue 之前检查）
+                            elapsed = time.time() - stream_start_time
+                            if not thinking and elapsed > 10:
+                                print(f'[调试] 任务 {task_id} chunk到达但无thinking，已耗时 {elapsed:.1f}s，chunk预览: {json.dumps(chunk, ensure_ascii=False)[:200]}')
+                                print(f'[宕机] 任务 {task_id} 10s 未收到思考内容，判定服务宕机')
+                                with _tasks_lock:
+                                    if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                        t = _tasks[task_id]
+                                        t['status'] = 'failed'
+                                        t['error'] = 'SERVICE_DOWN:生图服务无响应，可能已宕机，请重启服务'
+                                        t['thinking'] = thinking
+                                        t['updated_at'] = time.time()
+                                        _save_task(t)
+                                return
+
+                            # chunk 日志
+                            delta_preview = chunk.get('choices', [{}])[0].get('delta', {}) if chunk.get('choices') else {}
+                            r_len = len(delta_preview.get('reasoning_content', '') or '')
+                            c_len = len(delta_preview.get('content', '') or '')
+                            if r_len or c_len:
+                                print(f'[chunk] 任务 {task_id} reasoning+{r_len} content+{c_len}')
+
+                            # 检测 flow2api 返回的失败信号
+                            content_preview = delta_preview.get('content', '') or ''
+                            reasoning_preview = delta_preview.get('reasoning_content', '') or ''
+                            finish_reason_chunk = (chunk.get('choices', [{}])[0].get('finish_reason', '') or '')
+
+                            error_keywords = ['❌', '失败', 'error', 'Error', 'ERROR', '违规', '拒绝', 'denied']
+                            is_error_chunk = any(kw in content_preview or kw in reasoning_preview for kw in error_keywords)
+                            is_error_finish = finish_reason_chunk and finish_reason_chunk not in ('stop', '', '102')
+
+                            if is_error_chunk or is_error_finish:
+                                print(f'[失败] 任务 {task_id} flow2api 返回失败 chunk，finish={finish_reason_chunk}')
+                                print(f'  content={content_preview[:200]}')
+                                print(f'  reasoning={reasoning_preview[:200]}')
+                                print(f'  完整 chunk: {json.dumps(chunk, ensure_ascii=False)[:1000]}')
+                                err_msg = content_preview or reasoning_preview or f'finish_reason={finish_reason_chunk}'
+                                with _tasks_lock:
+                                    if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                        t = _tasks[task_id]
+                                        t['status'] = 'failed'
+                                        t['error'] = err_msg[:500]
+                                        t['thinking'] = thinking
+                                        t['updated_at'] = time.time()
+                                        _save_task(t)
+                                return
+
+                            choices = chunk.get('choices', [])
+                            if not choices:
+                                continue
+                            choice = choices[0]
+                            if not isinstance(choice, dict):
+                                continue
+                            delta = choice.get('delta', {})
+                            if not isinstance(delta, dict):
+                                continue
+
+                            # 累积 reasoning_content
+                            reasoning = delta.get('reasoning_content', '') or ''
+                            if reasoning:
+                                thinking += reasoning
+                                # 首个 thinking chunk 到达 → 服务正常，socket 超时升至 60s
+                                if sock:
+                                    try:
+                                        sock.settimeout(CHUNK_READ_TIMEOUT)
+                                    except Exception:
+                                        pass
+                                # 带参考图时监测"打码验证"，15s 未出现则判定违规
+                                if has_refs and not thinking_verified:
+                                    if thinking_start_time is None:
+                                        thinking_start_time = time.time()
+                                    if '打码验证' in thinking:
+                                        thinking_verified = True
+                                        print(f'[审核] 任务 {task_id} 思考出现"打码验证"，图片通过审核')
+                                    elif time.time() - thinking_start_time > 15:
+                                        print(f'[审核] 任务 {task_id} 思考 15s 未见"打码验证"，判定违规')
+                                        with _tasks_lock:
+                                            if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                                t = _tasks[task_id]
+                                                t['status'] = 'failed'
+                                                t['error'] = '参考图片可能包含违规内容，无法上传'
+                                                t['thinking'] = thinking
+                                                t['updated_at'] = time.time()
+                                                _save_task(t)
+                                        return
+
+                                # 实时保存 thinking 到任务
+                                with _tasks_lock:
+                                    if task_id in _tasks:
+                                        t = _tasks[task_id]
+                                        t['thinking'] = thinking
+                                        t['updated_at'] = time.time()
+                                        _save_task(t)
+
+                            # 累积 content
+                            content_delta = delta.get('content', '') or ''
+                            if content_delta:
+                                final_content += content_delta
+
+                            # 检查是否结束
+                            finish_reason = choice.get('finish_reason', '')
+                            if finish_reason == 'stop':
+                                break
+                            if finish_reason in ('content_filter', 'length'):
+                                print(f'[警告] 任务 {task_id} finish_reason={finish_reason}'
+                                      f' chunk: {json.dumps(chunk, ensure_ascii=False)[:500]}')
+
+                    except socket.timeout:
+                        elapsed = time.time() - stream_start_time
+                        print(f'[调试] 任务 {task_id} socket 读取超时，已耗时 {elapsed:.1f}s，thinking={bool(thinking)}')
+                        if not thinking:
+                            print(f'[宕机] 任务 {task_id} {elapsed:.0f}s 无任何响应，判定服务宕机')
                             with _tasks_lock:
                                 if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
                                     t = _tasks[task_id]
@@ -589,92 +700,7 @@ def _execute_task(task_id):
                                     t['updated_at'] = time.time()
                                     _save_task(t)
                             return
-
-                        # chunk 日志
-                        delta_preview = chunk.get('choices', [{}])[0].get('delta', {}) if chunk.get('choices') else {}
-                        r_len = len(delta_preview.get('reasoning_content', '') or '')
-                        c_len = len(delta_preview.get('content', '') or '')
-                        if r_len or c_len:
-                            print(f'[chunk] 任务 {task_id} reasoning+{r_len} content+{c_len}')
-
-                        # 检测 flow2api 返回的失败信号
-                        content_preview = delta_preview.get('content', '') or ''
-                        reasoning_preview = delta_preview.get('reasoning_content', '') or ''
-                        finish_reason_chunk = (chunk.get('choices', [{}])[0].get('finish_reason', '') or '')
-
-                        error_keywords = ['❌', '失败', 'error', 'Error', 'ERROR', '违规', '拒绝', 'denied']
-                        is_error_chunk = any(kw in content_preview or kw in reasoning_preview for kw in error_keywords)
-                        is_error_finish = finish_reason_chunk and finish_reason_chunk not in ('stop', '', '102')
-
-                        if is_error_chunk or is_error_finish:
-                            print(f'[失败] 任务 {task_id} flow2api 返回失败 chunk，finish={finish_reason_chunk}')
-                            print(f'  content={content_preview[:200]}')
-                            print(f'  reasoning={reasoning_preview[:200]}')
-                            print(f'  完整 chunk: {json.dumps(chunk, ensure_ascii=False)[:1000]}')
-                            err_msg = content_preview or reasoning_preview or f'finish_reason={finish_reason_chunk}'
-                            with _tasks_lock:
-                                if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
-                                    t = _tasks[task_id]
-                                    t['status'] = 'failed'
-                                    t['error'] = err_msg[:500]
-                                    t['thinking'] = thinking
-                                    t['updated_at'] = time.time()
-                                    _save_task(t)
-                            return
-
-                        choices = chunk.get('choices', [])
-                        if not choices:
-                            continue
-                        choice = choices[0]
-                        if not isinstance(choice, dict):
-                            continue
-                        delta = choice.get('delta', {})
-                        if not isinstance(delta, dict):
-                            continue
-
-                        # 累积 reasoning_content
-                        reasoning = delta.get('reasoning_content', '') or ''
-                        if reasoning:
-                            thinking += reasoning
-                            # 带参考图时监测"打码验证"，15s 未出现则判定违规
-                            if has_refs and not thinking_verified:
-                                if thinking_start_time is None:
-                                    thinking_start_time = time.time()
-                                if '打码验证' in thinking:
-                                    thinking_verified = True
-                                    print(f'[审核] 任务 {task_id} 思考出现"打码验证"，图片通过审核')
-                                elif time.time() - thinking_start_time > 15:
-                                    print(f'[审核] 任务 {task_id} 思考 15s 未见"打码验证"，判定违规')
-                                    with _tasks_lock:
-                                        if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
-                                            t = _tasks[task_id]
-                                            t['status'] = 'failed'
-                                            t['error'] = '参考图片可能包含违规内容，无法上传'
-                                            t['thinking'] = thinking
-                                            t['updated_at'] = time.time()
-                                            _save_task(t)
-                                    return
-
-                            # 实时保存 thinking 到任务
-                            with _tasks_lock:
-                                if task_id in _tasks:
-                                    t = _tasks[task_id]
-                                    t['thinking'] = thinking
-                                    t['updated_at'] = time.time()
-                                    _save_task(t)
-
-                        # 累积 content
-                        content_delta = delta.get('content', '') or ''
-                        if content_delta:
-                            final_content += content_delta
-
-                        # 检查是否结束
-                        finish_reason = choice.get('finish_reason', '')
-                        if finish_reason == 'stop':
-                            break
-                        if finish_reason in ('content_filter', 'length'):
-                            print(f'[警告] 任务 {task_id} finish_reason={finish_reason}'
-                                  f' chunk: {json.dumps(chunk, ensure_ascii=False)[:500]}')
+                        raise  # 已有 thinking 后的超时，交给外层重试逻辑
 
                 # 温和排空连接，避免 RST 导致 flow2api 卡在"处理中"
                 try:
