@@ -561,7 +561,11 @@ def _execute_task(task_id):
                 final_content = ''
 
                 with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-                    sock = resp.fp._sock
+                    # 穿透 BufferedReader / SocketIO 等包装层找到底层 socket
+                    fp = resp.fp
+                    while hasattr(fp, 'raw') and not hasattr(fp, '_sock'):
+                        fp = fp.raw
+                    sock = getattr(fp, '_sock', None)
                     if sock:
                         sock.settimeout(10)  # 初始 10s：快速检测无响应的生图服务
                     stream_start_time = time.time()
