@@ -564,6 +564,7 @@ def _execute_task(task_id):
                     sock = resp.fp._sock
                     if sock:
                         sock.settimeout(CHUNK_READ_TIMEOUT)
+                    stream_start_time = time.time()
                     for line in resp:
                         line = line.decode('utf-8', errors='replace').strip()
                         if not line or not line.startswith('data:'):
@@ -648,6 +649,19 @@ def _execute_task(task_id):
                                     t['thinking'] = thinking
                                     t['updated_at'] = time.time()
                                     _save_task(t)
+
+                        # 10s 无思考内容判定生图服务宕机
+                        if not thinking and time.time() - stream_start_time > 10:
+                            print(f'[宕机] 任务 {task_id} 10s 未收到思考内容，判定服务宕机')
+                            with _tasks_lock:
+                                if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                    t = _tasks[task_id]
+                                    t['status'] = 'failed'
+                                    t['error'] = 'SERVICE_DOWN:生图服务无响应，可能已宕机，请重启服务'
+                                    t['thinking'] = thinking
+                                    t['updated_at'] = time.time()
+                                    _save_task(t)
+                            return
 
                         # 累积 content
                         content_delta = delta.get('content', '') or ''

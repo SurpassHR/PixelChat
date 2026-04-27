@@ -83,6 +83,9 @@ async function syncToCanvas(tasks) {
     if (!match) {
       // No matching canvas item — if task is completed/failed/cancelled, mark processed
       if (task.status === 'failed') {
+        if (task.error && task.error.startsWith('SERVICE_DOWN:')) {
+          showToast('生图服务可能已宕机，请重启服务', 'error', 5000);
+        }
         addFailedTask(task);
         processedIds.add(task.id);
       } else if (task.status === 'completed' && !task.image_url) {
@@ -129,6 +132,9 @@ async function syncToCanvas(tasks) {
         processedIds.add(task.id);
       }
     } else if (task.status === 'failed') {
+      if (task.error && task.error.startsWith('SERVICE_DOWN:')) {
+        showToast('生图服务可能已宕机，请重启服务', 'error', 5000);
+      }
       addFailedTask(task);
       await addResultToCanvas({
         status: 'error',
