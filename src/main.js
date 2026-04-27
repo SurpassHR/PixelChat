@@ -10,6 +10,7 @@ import { initModelSelector } from './components/modelSelector.js';
 import { initCommandPalette } from './components/commandPalette.js';
 import { initSettingsModal } from './components/settingsModal.js';
 import { initTaskQueue } from './components/taskQueue.js';
+import { initTaskLog } from './components/taskLog.js';
 import { loadResizeWidths, initResizeHandles } from './resize.js';
 
 (async () => {
@@ -36,6 +37,7 @@ import { loadResizeWidths, initResizeHandles } from './resize.js';
   initCommandPalette();
   initSettingsModal();
   initTaskQueue();
+  initTaskLog();
 
   // 初始化拖拽手柄（必须在 DOM 完全就绪后）
   initResizeHandles();

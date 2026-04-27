@@ -259,6 +259,131 @@ body {
   color: var(--danger);
 }
 
+/* Task Log */
+#taskLogSection {
+  max-height: 25%;
+}
+.clear-log-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.clear-log-btn:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.log-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--surface2);
+  border: 1px solid transparent;
+  font-size: 12px;
+  transition: border-color 0.2s;
+  cursor: pointer;
+}
+.log-item:hover {
+  border-color: var(--danger);
+}
+.log-status {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--danger);
+}
+.log-body {
+  flex: 1;
+  min-width: 0;
+}
+.log-prompt {
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.log-meta {
+  color: var(--text2);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+/* Log detail overlay */
+.log-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2500;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.log-detail-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  max-width: 520px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+.log-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.log-detail-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--danger);
+}
+.log-detail-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.log-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.log-detail-label {
+  font-size: 11px;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.log-detail-value {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+  word-break: break-word;
+  background: var(--surface2);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  max-height: 200px;
+  overflow-y: auto;
+}
+.log-detail-error {
+  color: var(--danger);
+  border: 1px solid rgba(242, 139, 130, 0.2);
+}
+
 .session-item {
   padding: 10px;
   border-radius: var(--radius);

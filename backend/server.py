@@ -316,14 +316,24 @@ def _init_tasks_table():
 def _load_tasks():
     conn = get_db()
     rows = conn.execute('SELECT * FROM tasks ORDER BY created_at DESC LIMIT 100').fetchall()
-    conn.close()
+    now = time.time()
     for row in rows:
         task = dict(row)
         try:
             task['refs'] = json.loads(task.get('refs', '[]'))
         except (json.JSONDecodeError, TypeError):
             task['refs'] = []
+        # Reset stuck running tasks to pending so they get retried after restart
+        if task['status'] == 'running':
+            task['status'] = 'pending'
+            task['updated_at'] = now
+            conn.execute(
+                'UPDATE tasks SET status=?, updated_at=? WHERE id=?',
+                ('pending', now, task['id'])
+            )
         _tasks[task['id']] = task
+    conn.commit()
+    conn.close()
 
 def _save_task(task):
     conn = get_db()

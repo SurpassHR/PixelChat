@@ -1,6 +1,7 @@
 import { getState, setState, fetchTasks, cancelBackendTask, addResultToCanvas } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
+import { addFailedTask } from './taskLog.js';
 
 let pollTimer = null;
 let processedIds = new Set();
@@ -75,7 +76,13 @@ async function syncToCanvas(tasks) {
 
     if (!match) {
       // No matching canvas item — if task is completed/failed/cancelled, mark processed
-      if (task.status !== 'pending' && task.status !== 'running') {
+      if (task.status === 'failed') {
+        addFailedTask(task);
+        processedIds.add(task.id);
+      } else if (task.status === 'completed' && !task.image_url) {
+        addFailedTask({ ...task, error: '响应中未找到图片' });
+        processedIds.add(task.id);
+      } else if (task.status !== 'pending' && task.status !== 'running') {
         processedIds.add(task.id);
       }
       continue;
@@ -92,6 +99,7 @@ async function syncToCanvas(tasks) {
         });
         processedIds.add(task.id);
       } else {
+        addFailedTask({ ...task, error: '响应中未找到图片' });
         await addResultToCanvas({
           status: 'error',
           error: '响应中未找到图片',
@@ -102,6 +110,7 @@ async function syncToCanvas(tasks) {
         processedIds.add(task.id);
       }
     } else if (task.status === 'failed') {
+      addFailedTask(task);
       await addResultToCanvas({
         status: 'error',
         error: task.error || '生成失败',
@@ -117,6 +126,11 @@ async function syncToCanvas(tasks) {
       if (idx !== -1) {
         items.splice(idx, 1);
         setState({ canvasItems: [...items] });
+      }
+      // Also clean up pendingTasks in session so it won't reappear on refresh
+      const session = getState().sessions[getState().currentSessionId];
+      if (session && session.pendingTasks) {
+        session.pendingTasks = session.pendingTasks.filter(pt => pt.taskId !== task.id);
       }
       processedIds.add(task.id);
     }
