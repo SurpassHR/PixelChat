@@ -577,6 +577,19 @@ def _execute_task(task_id):
                         except json.JSONDecodeError:
                             continue
 
+                        # 10s 无思考内容判定生图服务宕机（必须在所有 continue 之前检查）
+                        if not thinking and time.time() - stream_start_time > 10:
+                            print(f'[宕机] 任务 {task_id} 10s 未收到思考内容，判定服务宕机')
+                            with _tasks_lock:
+                                if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                    t = _tasks[task_id]
+                                    t['status'] = 'failed'
+                                    t['error'] = 'SERVICE_DOWN:生图服务无响应，可能已宕机，请重启服务'
+                                    t['thinking'] = thinking
+                                    t['updated_at'] = time.time()
+                                    _save_task(t)
+                            return
+
                         # chunk 日志
                         delta_preview = chunk.get('choices', [{}])[0].get('delta', {}) if chunk.get('choices') else {}
                         r_len = len(delta_preview.get('reasoning_content', '') or '')
@@ -649,19 +662,6 @@ def _execute_task(task_id):
                                     t['thinking'] = thinking
                                     t['updated_at'] = time.time()
                                     _save_task(t)
-
-                        # 10s 无思考内容判定生图服务宕机
-                        if not thinking and time.time() - stream_start_time > 10:
-                            print(f'[宕机] 任务 {task_id} 10s 未收到思考内容，判定服务宕机')
-                            with _tasks_lock:
-                                if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
-                                    t = _tasks[task_id]
-                                    t['status'] = 'failed'
-                                    t['error'] = 'SERVICE_DOWN:生图服务无响应，可能已宕机，请重启服务'
-                                    t['thinking'] = thinking
-                                    t['updated_at'] = time.time()
-                                    _save_task(t)
-                            return
 
                         # 累积 content
                         content_delta = delta.get('content', '') or ''
