@@ -284,8 +284,9 @@ def serve_image(image_path):
 # Concurrency & reliability configuration
 MAX_CONCURRENT = 2       # Max concurrent generation requests
 MAX_QUEUE_DEPTH = 20     # Max pending tasks before rejecting
-REQUEST_TIMEOUT = 120    # HTTP request timeout in seconds
-MAX_RETRIES = 2          # Retry attempts on transient failures
+REQUEST_TIMEOUT = 3600   # Hard ceiling (1h), only prevents infinite hang
+CHUNK_READ_TIMEOUT = 60  # Socket read timeout per chunk — no data in 60s = connection lost
+MAX_RETRIES = 1          # Only retry on network disconnect, not flow2api content errors
 RETRY_BASE_DELAY = 5     # Base delay (s) for exponential backoff
 
 _tasks = {}
@@ -562,6 +563,9 @@ def _execute_task(task_id):
                 final_content = ''
 
                 with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                    sock = resp.fp._sock
+                    if sock:
+                        sock.settimeout(CHUNK_READ_TIMEOUT)
                     for line in resp:
                         line = line.decode('utf-8', errors='replace').strip()
                         if not line or not line.startswith('data:'):
@@ -573,6 +577,38 @@ def _execute_task(task_id):
                             chunk = json.loads(data_str)
                         except json.JSONDecodeError:
                             continue
+
+                        # chunk 日志
+                        delta_preview = chunk.get('choices', [{}])[0].get('delta', {}) if chunk.get('choices') else {}
+                        r_len = len(delta_preview.get('reasoning_content', '') or '')
+                        c_len = len(delta_preview.get('content', '') or '')
+                        if r_len or c_len:
+                            print(f'[chunk] 任务 {task_id} reasoning+{r_len} content+{c_len}')
+
+                        # 检测 flow2api 返回的失败信号
+                        content_preview = delta_preview.get('content', '') or ''
+                        reasoning_preview = delta_preview.get('reasoning_content', '') or ''
+                        finish_reason_chunk = (chunk.get('choices', [{}])[0].get('finish_reason', '') or '')
+
+                        error_keywords = ['❌', '失败', 'error', 'Error', 'ERROR', '违规', '拒绝', 'denied']
+                        is_error_chunk = any(kw in content_preview or kw in reasoning_preview for kw in error_keywords)
+                        is_error_finish = finish_reason_chunk and finish_reason_chunk not in ('stop', '')
+
+                        if is_error_chunk or is_error_finish:
+                            print(f'[失败] 任务 {task_id} flow2api 返回失败 chunk，finish={finish_reason_chunk}')
+                            print(f'  content={content_preview[:200]}')
+                            print(f'  reasoning={reasoning_preview[:200]}')
+                            print(f'  完整 chunk: {json.dumps(chunk, ensure_ascii=False)[:1000]}')
+                            err_msg = content_preview or reasoning_preview or f'finish_reason={finish_reason_chunk}'
+                            with _tasks_lock:
+                                if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                    t = _tasks[task_id]
+                                    t['status'] = 'failed'
+                                    t['error'] = err_msg[:500]
+                                    t['thinking'] = thinking
+                                    t['updated_at'] = time.time()
+                                    _save_task(t)
+                            return
 
                         choices = chunk.get('choices', [])
                         if not choices:
@@ -624,6 +660,9 @@ def _execute_task(task_id):
                         finish_reason = choice.get('finish_reason', '')
                         if finish_reason == 'stop':
                             break
+                        if finish_reason in ('content_filter', 'length'):
+                            print(f'[警告] 任务 {task_id} finish_reason={finish_reason}'
+                                  f' chunk: {json.dumps(chunk, ensure_ascii=False)[:500]}')
 
                 # 构建兼容 _store_image_from_response 的响应格式
                 resp_data = {
