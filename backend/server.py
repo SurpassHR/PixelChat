@@ -285,7 +285,6 @@ def serve_image(image_path):
 MAX_CONCURRENT = 2       # Max concurrent generation requests
 MAX_QUEUE_DEPTH = 20     # Max pending tasks before rejecting
 REQUEST_TIMEOUT = 120    # HTTP request timeout in seconds
-REF_IMAGE_TIMEOUT = 15   # Timeout when request includes reference images (content moderation)
 MAX_RETRIES = 2          # Retry attempts on transient failures
 RETRY_BASE_DELAY = 5     # Base delay (s) for exponential backoff
 
@@ -551,9 +550,10 @@ def _execute_task(task_id):
                     method='POST'
                 )
 
-                # 带参考图时使用较短超时，长时间无响应判定为内容违规
+                # 带参考图时需要检测"打码验证"来判定是否违规
                 has_refs = bool(refs)
-                req_timeout = REF_IMAGE_TIMEOUT if has_refs else REQUEST_TIMEOUT
+                thinking_start_time = None
+                thinking_verified = False  # 思考块中是否出现了"打码验证"
 
                 print(f'[任务] {task_id} 发送请求: {base}/v1/chat/completions '
                       f'(model={task["model"]}, attempt={attempt + 1}/{1 + MAX_RETRIES})')
@@ -561,7 +561,7 @@ def _execute_task(task_id):
                 thinking = ''
                 final_content = ''
 
-                with urllib.request.urlopen(req, timeout=req_timeout) as resp:
+                with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
                     for line in resp:
                         line = line.decode('utf-8', errors='replace').strip()
                         if not line or not line.startswith('data:'):
@@ -588,6 +588,25 @@ def _execute_task(task_id):
                         reasoning = delta.get('reasoning_content', '') or ''
                         if reasoning:
                             thinking += reasoning
+                            # 带参考图时监测"打码验证"，15s 未出现则判定违规
+                            if has_refs and not thinking_verified:
+                                if thinking_start_time is None:
+                                    thinking_start_time = time.time()
+                                if '打码验证' in thinking:
+                                    thinking_verified = True
+                                    print(f'[审核] 任务 {task_id} 思考出现"打码验证"，图片通过审核')
+                                elif time.time() - thinking_start_time > 15:
+                                    print(f'[审核] 任务 {task_id} 思考 15s 未见"打码验证"，判定违规')
+                                    with _tasks_lock:
+                                        if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                            t = _tasks[task_id]
+                                            t['status'] = 'failed'
+                                            t['error'] = '参考图片可能包含违规内容，无法上传'
+                                            t['thinking'] = thinking
+                                            t['updated_at'] = time.time()
+                                            _save_task(t)
+                                    return
+
                             # 实时保存 thinking 到任务
                             with _tasks_lock:
                                 if task_id in _tasks:
@@ -650,19 +669,7 @@ def _execute_task(task_id):
                 return
 
             except (urllib.error.URLError, socket.timeout, OSError) as e:
-                raw_err = e.reason if hasattr(e, 'reason') else e
-                err_msg = str(raw_err)[:200]
-                # 带参考图时超时（15s 无响应）判定为内容违规，不重试
-                is_timeout = isinstance(raw_err, socket.timeout) or 'timeout' in err_msg.lower() or 'timed out' in err_msg.lower()
-                if has_refs and is_timeout:
-                    with _tasks_lock:
-                        if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
-                            t = _tasks[task_id]
-                            t['status'] = 'failed'
-                            t['error'] = '参考图片可能包含违规内容，无法上传'
-                            t['updated_at'] = time.time()
-                            _save_task(t)
-                    return
+                err_msg = str(e.reason)[:200] if hasattr(e, 'reason') else str(e)[:200]
                 if attempt < MAX_RETRIES:
                     last_error = err_msg
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
