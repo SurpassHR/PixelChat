@@ -1,4 +1,4 @@
-import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask, MODEL_FAMILIES, getModelId, selectFamilyRatioResolution } from '../store.js';
+import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask, MODEL_FAMILIES, getModelId, selectFamilyRatioResolution, saveCurrentSessionDraft, resolveBackendUrl } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
 import { selectModel, fetchModels } from './modelSelector.js';
@@ -58,18 +58,37 @@ function renderAttachments() {
   const container = $('#attachments');
   const { refImages } = getState();
   container.innerHTML = refImages
-    .map((img, i) =>
-      `<div class="attachment-item">
-        <img src="${img.dataUrl}" alt="ref" title="${img.name}">
+    .map((img, i) => {
+      const src = img.dataUrl ? resolveBackendUrl(img.dataUrl) : '';
+      return `<div class="attachment-item">
+        <img src="${src}" alt="ref" title="${img.name}">
         <button class="remove" data-ridx="${i}">×</button>
-      </div>`
-    )
+      </div>`;
+    })
     .join('');
 }
 
-function addRefImage(name, dataUrl) {
+async function addRefImage(name, dataUrl) {
+  let finalDataUrl = dataUrl;
+  // 如果不是 base64，尝试转换为 base64
+  if (dataUrl && typeof dataUrl === 'string' && !dataUrl.startsWith('data:')) {
+    try {
+      const fullUrl = dataUrl.startsWith('/') ? getStorageBase() + dataUrl : dataUrl;
+      const response = await fetch(fullUrl);
+      const blob = await response.blob();
+      finalDataUrl = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      console.error('转换参考图为 base64 失败:', e);
+      finalDataUrl = null;
+    }
+  }
+  if (!finalDataUrl) return;
   const { refImages } = getState();
-  refImages.push({ name, dataUrl });
+  refImages.push({ name, dataUrl: finalDataUrl });
   setState({ refImages: [...refImages] });
   setState({ statusText: '已添加参考图' });
 }
@@ -116,11 +135,33 @@ async function generate() {
 
   const turnRefs = [...refImages];
 
+  // 将参考图中的相对路径转换为 base64，确保后端能正确识别
+  const enrichedRefs = await Promise.all(turnRefs.map(async (img) => {
+    let dataUrl = img.dataUrl;
+    if (dataUrl && typeof dataUrl === 'string' && !dataUrl.startsWith('data:')) {
+      try {
+        // 尝试从后端获取图片的 base64 数据
+        const fullUrl = dataUrl.startsWith('/') ? getStorageBase() + dataUrl : dataUrl;
+        const response = await fetch(fullUrl);
+        const blob = await response.blob();
+        dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+      } catch (e) {
+        console.error('转换参考图为 base64 失败:', e);
+        dataUrl = null;
+      }
+    }
+    return { name: img.name, dataUrl };
+  }));
+
   // Save batchSize to store for persistence
   setState({ batchSize });
 
   // Submit tasks to backend queue in parallel
-  const refs = turnRefs.map(r => ({ name: r.name, dataUrl: r.dataUrl }));
+  const refs = enrichedRefs;
   const submissions = Array.from({ length: batchSize }, () =>
     submitTask({ prompt, model: selectedModelId, provider: selectedProvider, refs })
   );
@@ -276,7 +317,15 @@ export function initPromptArea() {
     _monacoVisible = false;
 
     if (_monacoEditor) {
-      promptInput.value = _monacoEditor.getValue();
+      const newPrompt = _monacoEditor.getValue();
+      promptInput.value = newPrompt;
+      // 同步到 store
+      const currentPrompt = getState().promptDraft;
+      if (newPrompt !== currentPrompt) {
+        console.log('[closeMonaco] Monaco 关闭，同步提示词, 新内容长度:', newPrompt.length);
+        setState({ promptDraft: newPrompt });
+        saveCurrentSessionDraft();
+      }
     }
 
     monacoExpand.classList.add('collapsing');
@@ -453,15 +502,15 @@ export function initPromptArea() {
   $('#attachBtn').addEventListener('click', () => {
     fileInput.click();
   });
-  fileInput.addEventListener('change', () => {
+  fileInput.addEventListener('change', async () => {
     const files = Array.from(fileInput.files);
-    files.forEach(file => {
+    for (const file of files) {
       const reader = new FileReader();
-      reader.onload = ev => {
-        addRefImage(file.name, ev.target.result);
+      reader.onload = async ev => {
+        await addRefImage(file.name, ev.target.result);
       };
       reader.readAsDataURL(file);
-    });
+    }
     fileInput.value = '';
   });
 
@@ -490,7 +539,7 @@ export function initPromptArea() {
   });
 
   // --- 粘贴处理器 ---
-  document.addEventListener('paste', e => {
+  document.addEventListener('paste', async e => {
     const items = e.clipboardData?.items;
     if (!items) return;
     for (const item of items) {
@@ -543,11 +592,11 @@ export function initPromptArea() {
               });
             } catch {}
           }
-          addRefImage(parsed.name || '参考图', finalUrl);
+          await addRefImage(parsed.name || '参考图', finalUrl);
         }
       } catch {
         if (data.startsWith('data:image')) {
-          addRefImage('参考图', data);
+          await addRefImage('参考图', data);
         }
       }
     }
@@ -555,4 +604,36 @@ export function initPromptArea() {
 
   // --- 参考图变化订阅 ---
   subscribe('refImages', renderAttachments);
+  // 立即渲染一次，确保已有的参考图被显示
+  renderAttachments();
+  
+  // 监听自定义事件，数据加载完成后强制刷新（兜底）
+  window.addEventListener('ref-images-loaded', () => {
+    renderAttachments();
+  });
+  
+  // 提示词草稿恢复与同步
+  const { promptDraft } = getState();
+  console.log('[initPromptArea] 初始化时 promptDraft:', promptDraft);
+  if (promptDraft) {
+    $('#promptInput').value = promptDraft;
+    if (_monacoEditor) _monacoEditor.setValue(promptDraft);
+    console.log('[initPromptArea] 已恢复提示词:', promptDraft.substring(0, 50));
+  }
+  
+  // 监听提示词输入变化，同步到 store.promptDraft 并保存草稿
+  const syncPromptDraft = () => {
+    const newPrompt = $('#promptInput').value;
+    const currentPrompt = getState().promptDraft;
+    if (newPrompt !== currentPrompt) {
+      console.log('[syncPromptDraft] 提示词变化，保存中... 新内容长度:', newPrompt.length);
+      setState({ promptDraft: newPrompt });
+      saveCurrentSessionDraft();
+    }
+  };
+  $('#promptInput').addEventListener('input', syncPromptDraft);
+  
+  // 在 closeMonaco 时同步内容
+  const originalCloseMonaco = closeMonaco;
+  window._closeMonaco = originalCloseMonaco;
 }

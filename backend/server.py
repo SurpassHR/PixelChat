@@ -287,7 +287,7 @@ def serve_image(image_path):
 MAX_CONCURRENT = 2       # Max concurrent generation requests
 MAX_QUEUE_DEPTH = 20     # Max pending tasks before rejecting
 REQUEST_TIMEOUT = 3600   # Hard ceiling (1h), only prevents infinite hang
-CHUNK_READ_TIMEOUT = 60  # Socket read timeout per chunk — no data in 60s = connection lost
+CHUNK_READ_TIMEOUT = 180  # Socket read timeout per chunk — 允许更长的处理间隔（例如返回102时）
 MAX_RETRIES = 1          # Only retry on network disconnect, not flow2api content errors
 RETRY_BASE_DELAY = 5     # Base delay (s) for exponential backoff
 
@@ -576,16 +576,16 @@ def _execute_task(task_id):
                         pass
                     if sock:
                         try:
-                            sock.settimeout(10)  # 初始 10s：快速检测无响应的生图服务
+                            sock.settimeout(60)  # 初始 60s：为返回102等长处理留足时间
                         except Exception:
                             sock = None
                     stream_start_time = time.time()
                     if sock:
-                        print(f'[流] 任务 {task_id} 连接建立，socket 超时=10s，等待首个 thinking...')
+                        print(f'[流] 任务 {task_id} 连接建立，socket 超时=60s，等待首个 thinking...')
                     else:
                         print(f'[流] 任务 {task_id} 连接建立（使用线程定时器），等待首个 thinking...')
-                        # 无法获取 socket 时用线程定时器兜底：10s 后关闭连接触发异常
-                        _close_timer = threading.Timer(10.0, lambda: resp.close())
+                        # 无法获取 socket 时用线程定时器兜底：60s 后关闭连接触发异常
+                        _close_timer = threading.Timer(60.0, lambda: resp.close())
                         _close_timer.daemon = True
                         _close_timer.start()
                     try:
@@ -601,20 +601,10 @@ def _execute_task(task_id):
                             except json.JSONDecodeError:
                                 continue
 
-                            # 10s 无思考内容判定生图服务宕机（必须在所有 continue 之前检查）
+                            # 不再因为短时间无思考内容而判定失败，允许长时间等待（例如返回102处理中）
                             elapsed = time.time() - stream_start_time
                             if not thinking and elapsed > 10:
-                                print(f'[调试] 任务 {task_id} chunk到达但无thinking，已耗时 {elapsed:.1f}s，chunk预览: {json.dumps(chunk, ensure_ascii=False)[:200]}')
-                                print(f'[宕机] 任务 {task_id} 10s 未收到思考内容，判定服务宕机')
-                                with _tasks_lock:
-                                    if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
-                                        t = _tasks[task_id]
-                                        t['status'] = 'failed'
-                                        t['error'] = 'SERVICE_DOWN:生图服务无响应，可能已宕机，请重启服务'
-                                        t['thinking'] = thinking
-                                        t['updated_at'] = time.time()
-                                        _save_task(t)
-                                return
+                                print(f'[等待] 任务 {task_id} 已等待 {elapsed:.0f}s 尚未收到思考内容，继续等待（可能服务端返回102处理中）...')
 
                             # chunk 日志
                             delta_preview = chunk.get('choices', [{}])[0].get('delta', {}) if chunk.get('choices') else {}
@@ -665,7 +655,7 @@ def _execute_task(task_id):
                                 # 首个 thinking chunk 到达 → 服务正常，取消定时器/升超时
                                 if sock:
                                     try:
-                                        sock.settimeout(CHUNK_READ_TIMEOUT)
+                                        sock.settimeout(CHUNK_READ_TIMEOUT)  # 使用更长的读取超时（见下面常量定义）
                                     except Exception:
                                         pass
                                 else:

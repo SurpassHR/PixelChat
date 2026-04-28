@@ -7,6 +7,7 @@ const state = {
   selectedItemIds: [],
   selectedMaterialIds: [],
   refImages: [],
+  promptDraft: '',              // 暂存的提示词文本，用于恢复
   reusePrompt: false,
   reuseRef: false,
   models: [],
@@ -114,7 +115,7 @@ function sanitizeForSave(obj) {
   return clone;
 }
 
-function resolveBackendUrl(url) {
+export function resolveBackendUrl(url) {
   if (!url || typeof url !== 'string' || url.startsWith('data:') || url.startsWith('blob:')) return url;
   if (/^https?:\/\//i.test(url)) return sanitizeImageUrl(url);
   if (url.startsWith('/')) return getStorageBase() + sanitizeImageUrl(url);
@@ -161,11 +162,17 @@ export function subscribe(key, fn) {
 }
 
 export function setState(partial) {
+  console.log('[setState] 变更字段:', Object.keys(partial));
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
   if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'aspectRatio' in partial || 'selectedFamilyId' in partial || 'selectedResolution' in partial) {
     saveSettings();
+  }
+  // 当 refImages 或 promptDraft 变化时，自动保存当前会话草稿
+  if ('refImages' in partial || 'promptDraft' in partial) {
+    console.log('[setState] 检测到草稿相关字段变化，触发保存草稿');
+    saveCurrentSessionDraft();
   }
   for (const key of Object.keys(partial)) {
     if (listeners[key]) listeners[key].forEach(fn => fn());
@@ -415,6 +422,9 @@ export async function deleteSession(id) {
 }
 
 export async function switchSession(id) {
+  console.log('[switchSession] 切换会话，旧会话ID:', state.currentSessionId, '新会话ID:', id);
+  // 保存当前会话的草稿
+  saveCurrentSessionDraft();
   _cleanupResolvedUrls();
   state.currentSessionId = id;
   saveActiveId(id);
@@ -422,12 +432,16 @@ export async function switchSession(id) {
   state.selectedItemIds = [];
   state.selectedMaterialIds = [];
   state.viewport = { panX: 0, panY: 0, zoom: 1 };
+  // 加载新会话的草稿（异步转换 base64）
+  await loadSessionDraft(id);
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
   if (listeners['currentSessionId']) listeners['currentSessionId'].forEach(fn => fn());
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
   if (listeners['selectedItemIds']) listeners['selectedItemIds'].forEach(fn => fn());
   if (listeners['selectedMaterialIds']) listeners['selectedMaterialIds'].forEach(fn => fn());
   if (listeners['viewport']) listeners['viewport'].forEach(fn => fn());
+  if (listeners['refImages']) listeners['refImages'].forEach(fn => fn());
+  if (listeners['promptDraft']) listeners['promptDraft'].forEach(fn => fn());
 }
 
 export async function appendMessage(msg) {
@@ -1545,6 +1559,9 @@ export async function initStore() {
   // 如果有当前会话，重建画布（恢复画布项）
   if (state.currentSessionId) {
     await rebuildCanvasFromSession();
+    // 加载当前会话的草稿（参考图和提示词）
+    console.log('[initStore] 加载会话草稿, sessionId:', state.currentSessionId);
+    await loadSessionDraft(state.currentSessionId);
   }
   
   // 通知所有监听器状态已更新
@@ -1557,6 +1574,110 @@ export async function initStore() {
   if (listeners['selectedModelId']) listeners['selectedModelId'].forEach(fn => fn());
   if (listeners['selectedProvider']) listeners['selectedProvider'].forEach(fn => fn());
   if (listeners['providers']) listeners['providers'].forEach(fn => fn());
+  if (listeners['refImages']) listeners['refImages'].forEach(fn => fn());
+  if (listeners['promptDraft']) listeners['promptDraft'].forEach(fn => fn());
+}
+
+// --------------------------------------------------------------
+// 草稿存储 (localStorage，按会话隔离)
+// --------------------------------------------------------------
+function getDraftStorageKey(sessionId) {
+  return `image-gen-draft-${sessionId}`;
+}
+
+export function saveCurrentSessionDraft() {
+  const sessionId = state.currentSessionId;
+  if (!sessionId) {
+    console.log('[saveCurrentSessionDraft] 无当前会话，跳过保存');
+    return;
+  }
+  const draft = {
+    refImages: state.refImages,
+    promptDraft: state.promptDraft
+  };
+  console.log('[saveCurrentSessionDraft] 保存草稿, sessionId:', sessionId, 'refImages数量:', draft.refImages.length, 'promptDraft长度:', draft.promptDraft?.length || 0);
+  try {
+    localStorage.setItem(getDraftStorageKey(sessionId), JSON.stringify(draft));
+    console.log('[saveCurrentSessionDraft] 保存成功');
+  } catch (e) {
+    console.warn('[saveCurrentSessionDraft] 保存失败:', e);
+  }
+}
+
+export async function loadSessionDraft(sessionId) {
+  if (!sessionId) {
+    console.log('[loadSessionDraft] sessionId 为空，跳过加载');
+    return;
+  }
+  try {
+    const raw = localStorage.getItem(getDraftStorageKey(sessionId));
+    console.log('[loadSessionDraft] 读取草稿, sessionId:', sessionId, '是否存在:', !!raw);
+    if (raw) {
+      const draft = JSON.parse(raw);
+      console.log('[loadSessionDraft] 解析成功, refImages数量:', draft.refImages?.length || 0, 'promptDraft长度:', draft.promptDraft?.length || 0);
+      if (draft.refImages && Array.isArray(draft.refImages)) {
+        // 将非 base64 的 URL 转换为 base64，确保刷新后无需依赖后端即可显示
+        const convertedRefs = await Promise.all(draft.refImages.map(async (img) => {
+          let dataUrl = img.dataUrl;
+          if (dataUrl && typeof dataUrl === 'string' && !dataUrl.startsWith('data:')) {
+            // 转换为绝对 URL 以便 fetch
+            const fullUrl = resolveBackendUrl(dataUrl);
+            try {
+              const response = await fetch(fullUrl);
+              const blob = await response.blob();
+              dataUrl = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.readAsDataURL(blob);
+              });
+              console.log('[loadSessionDraft] 已将非 base64 图片转换为 base64, 原URL:', fullUrl);
+            } catch (e) {
+              console.error('[loadSessionDraft] 转换非 base64 图片失败:', fullUrl, e);
+              dataUrl = null;
+            }
+          }
+          return { ...img, dataUrl };
+        }));
+        // 过滤掉转换失败的图片（dataUrl 为 null）
+        const validRefs = convertedRefs.filter(img => img.dataUrl);
+        if (validRefs.length !== draft.refImages.length) {
+          console.warn('[loadSessionDraft] 部分参考图转换失败，已丢弃', draft.refImages.length - validRefs.length);
+        }
+        state.refImages = validRefs;
+        console.log('[loadSessionDraft] 已恢复 refImages (已转换为 base64), 数量:', state.refImages.length);
+        if (listeners['refImages']) listeners['refImages'].forEach(fn => fn());
+        // 触发自定义事件，确保视图更新
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('ref-images-loaded', { detail: validRefs }));
+        }
+      }
+      if (typeof draft.promptDraft === 'string') {
+        state.promptDraft = draft.promptDraft;
+        console.log('[loadSessionDraft] 已恢复 promptDraft:', state.promptDraft.substring(0, 50));
+        if (listeners['promptDraft']) listeners['promptDraft'].forEach(fn => fn());
+      }
+    } else {
+      console.log('[loadSessionDraft] 无草稿数据，清空当前状态');
+      // 没有草稿时清空当前状态
+      if (state.refImages.length) {
+        state.refImages = [];
+        if (listeners['refImages']) listeners['refImages'].forEach(fn => fn());
+      }
+      if (state.promptDraft) {
+        state.promptDraft = '';
+        if (listeners['promptDraft']) listeners['promptDraft'].forEach(fn => fn());
+      }
+    }
+  } catch (e) {
+    console.warn('[loadSessionDraft] 加载失败:', e);
+  }
+}
+
+export function clearSessionDraft(sessionId) {
+  try {
+    localStorage.removeItem(getDraftStorageKey(sessionId));
+    console.log('[clearSessionDraft] 已清除草稿, sessionId:', sessionId);
+  } catch (e) {}
 }
 
 // --------------------------------------------------------------

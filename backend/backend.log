@@ -1,0 +1,26 @@
+Backend running on http://127.0.0.1:5001
+ * Serving Flask app 'server'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on http://127.0.0.1:5001
+Press CTRL+C to quit
+127.0.0.1 - - [28/Apr/2026 19:40:36] "GET /api/tasks HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/sessions HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/active HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/materials HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/tasks HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/tasks HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/tasks HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/images/36cd340765534ceebba77943176038c9 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/images/5a8b2eb4a6d645f39ade06658ce5d5bf HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/images/36cd340765534ceebba77943176038c9 HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/images/5a8b2eb4a6d645f39ade06658ce5d5bf HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "GET /api/images/5a8b2eb4a6d645f39ade06658ce5d5bf HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "OPTIONS /api/sessions HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "POST /api/sessions HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "OPTIONS /api/materials HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "POST /api/materials HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "OPTIONS /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:38] "POST /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [28/Apr/2026 19:40:40] "GET /api/tasks HTTP/1.1" 200 -
