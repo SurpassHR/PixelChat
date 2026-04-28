@@ -86,7 +86,7 @@ def get_sessions():
 
 @app.route('/api/sessions', methods=['POST'])
 def save_sessions():
-    kv_set('sessions', request.json)
+    kv_set('sessions', request.get_json(force=True, silent=True) or {})
     return jsonify({'ok': True})
 
 # --- Materials ---
@@ -101,7 +101,7 @@ def get_materials():
 
 @app.route('/api/materials', methods=['POST'])
 def save_materials():
-    data = request.json
+    data = request.get_json(force=True, silent=True) or {}
     # 兼容旧格式：如果是数组，则当作 materials 数组，materialStacks 留空
     if isinstance(data, list):
         kv_set('materials', data)
@@ -126,7 +126,7 @@ def get_settings():
 
 @app.route('/api/settings', methods=['POST'])
 def save_settings():
-    kv_set('settings', request.json)
+    kv_set('settings', request.get_json(force=True, silent=True) or {})
     return jsonify({'ok': True})
 
 # --- Active session id ---
@@ -138,7 +138,7 @@ def get_active():
 
 @app.route('/api/active', methods=['POST'])
 def save_active():
-    kv_set('active', request.json.get('id', ''))
+    kv_set('active', (request.get_json(force=True, silent=True) or {}).get('id', ''))
     return jsonify({'ok': True})
 
 # --- Image upload / serve ---
@@ -225,7 +225,7 @@ def _load_material_stacks():
 
 @app.route('/api/images', methods=['POST'])
 def upload_image():
-    data = request.json
+    data = request.get_json(force=True, silent=True) or {}
     raw = data['data']
     mime_type = 'image/png'
     if ';' in raw and ',' in raw:
@@ -936,7 +936,7 @@ _migrate_existing_images()
 
 @app.route('/api/tasks', methods=['POST'])
 def create_task():
-    data = request.json
+    data = request.get_json(force=True, silent=True) or {}
     prompt = (data.get('prompt') or '').strip()
     if not prompt:
         return jsonify({'error': 'prompt is required'}), 400

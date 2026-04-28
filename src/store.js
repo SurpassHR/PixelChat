@@ -317,10 +317,11 @@ async function apiPost(path, data) {
   return res.json();
 }
 
-function beaconPost(path, data) {
+export function beaconPost(path, data) {
   const base = getStorageBase();
   if (!base) return;
-  navigator.sendBeacon(base + path, JSON.stringify(data));
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  navigator.sendBeacon(base + path, blob);
 }
 
 function sanitizeImageUrl(url) {
