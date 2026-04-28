@@ -1,19 +1,11 @@
-import { getState, setState, subscribe, addProvider, removeProvider, updateProviderModels, toggleModelEnabled, updateProviderConfig } from '../store.js';
+import { getState, setState, subscribe, addProvider, removeProvider, updateProviderModels, toggleModelEnabled, updateProviderConfig, batchToggleModelsEnabled } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
 import { selectModel } from './modelSelector.js';
 import { fetchModels as apiFetchModels } from '../api.js';
 
 const overlay = $('#settingsModalOverlay');
 
-const AVAILABLE_PROVIDERS = [
-  { id: 'openai', name: 'OpenAI', description: 'GPT-4o, DALL-E 等图像生成模型', defaultBase: 'https://api.openai.com/v1', type: 'official' },
-  { id: 'google', name: 'Google Gemini', description: 'Gemini 2.0 Flash 图像生成模型', defaultBase: 'https://generativelanguage.googleapis.com/v1beta/openai', type: 'official' },
-  { id: 'custom', name: 'OpenAI Compat', description: '自定义 OpenAI 兼容 API，需要填写完整 base_url', defaultBase: '', type: 'custom' }
-];
-
 let _activeProvider = '';
-let _addMode = 'grid'; // 'grid' | 'custom'
-let _addSearchQuery = '';
 
 // --- Settings modal ---
 
@@ -94,8 +86,43 @@ function renderModelTable(providerName) {
   const models = (providers[providerName] && providers[providerName].models) || [];
   const tbody = $('#settingsModelList');
   const countEl = $('#settingsModelCount');
+  const toolbar = $('#settingsModelToolbar');
 
   countEl.textContent = models.length;
+
+  // 创建工具栏（全选/反选按钮）
+  if (!toolbar) {
+    const container = $('#settingsModelList').parentElement;
+    const div = document.createElement('div');
+    div.id = 'settingsModelToolbar';
+    div.style.marginBottom = '12px';
+    div.style.display = 'flex';
+    div.style.gap = '8px';
+    container.insertBefore(div, $('#settingsModelList'));
+  }
+  const toolbarEl = $('#settingsModelToolbar');
+  if (toolbarEl) {
+    toolbarEl.innerHTML = `
+      <button class="settings-btn settings-btn-sm" id="selectAllModelsBtn">全选</button>
+      <button class="settings-btn settings-btn-sm" id="deselectAllModelsBtn">反选</button>
+    `;
+    const selectAllBtn = $('#selectAllModelsBtn');
+    const deselectAllBtn = $('#deselectAllModelsBtn');
+    if (selectAllBtn) {
+      selectAllBtn.onclick = () => {
+        batchToggleModelsEnabled(providerName, true);
+        renderModelTable(providerName);
+        setState({ statusText: `已启用所有模型` });
+      };
+    }
+    if (deselectAllBtn) {
+      deselectAllBtn.onclick = () => {
+        batchToggleModelsEnabled(providerName, false);
+        renderModelTable(providerName);
+        setState({ statusText: `已禁用所有模型` });
+      };
+    }
+  }
 
   if (models.length === 0) {
     tbody.innerHTML = '<tr><td colspan="3" class="settings-empty-row">暂无模型，请点击下方按钮获取</td></tr>';
@@ -122,6 +149,7 @@ function renderModelTable(providerName) {
   tbody.querySelectorAll('.toggle-switch input').forEach(cb => {
     cb.addEventListener('change', () => {
       toggleModelEnabled(providerName, cb.dataset.modelId);
+      // 重新渲染工具栏以保持按钮状态（但无需重新创建，只是按钮不变）
     });
   });
 
@@ -157,102 +185,18 @@ function syncSelectBtnStates(tbody, selectedId) {
 
 function openAddModal() {
   const apOverlay = $('#addProviderOverlay');
-  _addMode = 'grid';
-  _addSearchQuery = '';
-  $('#apSearch').value = '';
-  $('#apBody').style.display = '';
-  $('#apCustom').style.display = 'none';
-  renderProviderGrid();
+  // 直接显示自定义表单，不再显示网格选择
+  $('#apBody').style.display = 'none';
+  $('#apCustom').style.display = '';
+  $('#apCustomName').value = '';
+  $('#apCustomKey').value = '';
+  $('#apCustomBase').value = '';
+  $('#apCustomName').focus();
   apOverlay.style.display = 'flex';
 }
 
 function closeAddModal() {
   $('#addProviderOverlay').style.display = 'none';
-}
-
-function renderProviderGrid() {
-  const container = $('#apGrid');
-  const query = _addSearchQuery.toLowerCase();
-  const filtered = AVAILABLE_PROVIDERS.filter(p =>
-    p.name.toLowerCase().includes(query) || p.description.toLowerCase().includes(query)
-  );
-
-  if (filtered.length === 0) {
-    container.innerHTML = `<div class="ap-empty">
-      <div class="ap-empty-icon">⚙</div>
-      <div>未找到相关供应商</div>
-    </div>`;
-    return;
-  }
-
-  let html = '';
-  filtered.forEach(p => {
-    const colors = { openai: '#00a67e', google: '#4285f4', custom: '#9ca3af' };
-    const color = colors[p.id] || 'var(--accent-dim)';
-    html += `<div class="ap-card" data-provider-id="${escapeHtml(p.id)}">
-      <div class="ap-card-icon" style="color:${color}">${escapeHtml(p.name.charAt(0))}</div>
-      <div class="ap-card-body">
-        <div class="ap-card-name">${escapeHtml(p.name)}</div>
-        <div class="ap-card-desc">${escapeHtml(p.description)}</div>
-      </div>
-      <span class="ap-card-arrow">→</span>
-    </div>`;
-  });
-  container.innerHTML = html;
-
-  container.querySelectorAll('.ap-card').forEach(el => {
-    el.addEventListener('click', () => {
-      handlePresetSelect(el.dataset.providerId);
-    });
-  });
-}
-
-function handlePresetSelect(id) {
-  const preset = AVAILABLE_PROVIDERS.find(p => p.id === id);
-  if (!preset) return;
-
-  // For custom provider, open the custom form instead of adding directly
-  if (preset.id === 'custom') {
-    switchToCustom();
-    return;
-  }
-
-  const { providers } = getState();
-  const name = preset.name;
-  if (providers[name]) {
-    setState({ statusText: `供应商 "${name}" 已存在` });
-    closeAddModal();
-    _activeProvider = name;
-    renderSidebar();
-    showProviderConfig(name);
-    return;
-  }
-
-  addProvider(name, preset.defaultBase, '');
-  setState({ statusText: `已添加供应商: ${name}` });
-
-  closeAddModal();
-  _activeProvider = name;
-  renderSidebar();
-  showProviderConfig(name);
-
-  // Auto-fetch models
-  fetchAndRenderModels(name);
-}
-
-function switchToCustom() {
-  _addMode = 'custom';
-  $('#apBody').style.display = 'none';
-  $('#apCustom').style.display = '';
-  $('#apCustomName').value = '';
-  $('#apCustomKey').value = '';
-  $('#apCustomName').focus();
-}
-
-function switchBackToGrid() {
-  _addMode = 'grid';
-  $('#apBody').style.display = '';
-  $('#apCustom').style.display = 'none';
 }
 
 function handleCustomSubmit() {
@@ -402,16 +346,14 @@ export function initSettingsModal() {
   });
   $('#apCloseBtn').addEventListener('click', closeAddModal);
   $('#apCancelBtn').addEventListener('click', closeAddModal);
-  $('#apCustomBack').addEventListener('click', switchBackToGrid);
+  // 移除返回网格按钮的监听（apCustomBack 可能不存在，但保留兼容）
+  const backBtn = $('#apCustomBack');
+  if (backBtn) {
+    // 移除原有监听，或者改为关闭模态框等。这里简单移除监听，但原监听已被替换，无需额外处理
+  }
   $('#apCustomSubmit').addEventListener('click', handleCustomSubmit);
   $('#apCustomName').addEventListener('keydown', e => {
     if (e.key === 'Enter') handleCustomSubmit();
-  });
-
-  // Search
-  $('#apSearch').addEventListener('input', () => {
-    _addSearchQuery = $('#apSearch').value;
-    renderProviderGrid();
   });
 
   // Delete provider

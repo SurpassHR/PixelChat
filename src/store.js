@@ -240,6 +240,19 @@ export function toggleModelEnabled(providerName, modelId) {
   if (listeners['providers']) listeners['providers'].forEach(fn => fn());
 }
 
+export function batchToggleModelsEnabled(providerName, enabled) {
+  const provider = state.providers[providerName];
+  if (!provider) return;
+  const models = provider.models || [];
+  if (models.length === 0) return;
+  for (const model of models) {
+    model.enabled = enabled;
+  }
+  rebuildModels();
+  saveSettings();
+  if (listeners['providers']) listeners['providers'].forEach(fn => fn());
+}
+
 export function updateProviderConfig(name, config) {
   if (!state.providers[name]) return;
   Object.assign(state.providers[name], config);
@@ -376,6 +389,13 @@ async function loadSessions() {
 
 function saveSessions() {
   debouncedBackendSync();
+}
+
+// 立即强制保存会话（不经过防抖）
+export async function forceSaveSessions() {
+  try {
+    await apiPost('/api/sessions', sanitizeForSave(state.sessions));
+  } catch (e) { console.error('[forceSaveSessions] 保存失败:', e); }
 }
 
 async function loadActiveId() {
@@ -696,7 +716,7 @@ export async function removeCanvasItemById(itemId) {
 
   if (item.dropId) {
     session.droppedImages = (session.droppedImages || []).filter(d => d.id !== item.dropId);
-    saveSessions();
+    await forceSaveSessions();
   } else if (item.messageIndex >= 0 && session.messages[item.messageIndex]) {
     const userIdx = item.messageIndex - 1;
     if (userIdx >= 0 && session.messages[userIdx]?.role === 'user') {
@@ -704,34 +724,33 @@ export async function removeCanvasItemById(itemId) {
     } else {
       session.messages.splice(item.messageIndex, 1);
     }
-    saveSessions();
+    await forceSaveSessions();
   } else if (item.type === 'stack' && session.stacks) {
     const rawStackId = item.itemId.substring(5);
-    // 尝试规范化 ID：去掉可能的前导连字符
     const normalizedId = rawStackId.replace(/^-+/, '');
     console.log('[删除Stack] 原始 stackId:', rawStackId, '规范化后:', normalizedId);
     console.log('[删除Stack] 当前 stacks 列表:', session.stacks.map(s => ({ id: s.id, type: typeof s.id })));
     console.log('[删除Stack] 当前 stacks 数量:', session.stacks.length);
     const beforeCount = session.stacks.length;
-    // 同时匹配原始ID和规范化后的ID（处理可能的前导连字符不一致）
     session.stacks = session.stacks.filter(s => s.id !== rawStackId && s.id !== normalizedId);
     console.log('[删除Stack] 过滤后剩余数量:', session.stacks.length, '删除了', beforeCount - session.stacks.length, '个');
     if (session.stacks.length === beforeCount) {
       console.error('[删除Stack] 未找到匹配的 stack! 原始ID=', rawStackId, '规范化ID=', normalizedId, '可用 IDs:', session.stacks.map(s => s.id));
-      // 尝试更宽松的匹配：输出每个 stack.id 的字符表示
       session.stacks.forEach(s => {
         console.log(`  可用stack id: "${s.id}", 是否等于 raw? ${s.id === rawStackId}, 是否等于 normalized? ${s.id === normalizedId}`);
       });
     } else {
       console.log('[删除Stack] 成功删除 stack');
     }
-    // 立即保存到后端，避免刷新后重新出现
     try {
       await apiPost('/api/sessions', sanitizeForSave(state.sessions));
       console.log('[删除Stack] 立即保存 sessions 成功');
     } catch (err) {
       console.error('[删除Stack] 保存 sessions 失败:', err);
     }
+  } else {
+    // 普通图像删除也要立即保存
+    await forceSaveSessions();
   }
 
   if (listeners['sessions']) listeners['sessions'].forEach(fn => fn());
@@ -1941,7 +1960,7 @@ export async function removeFromStack(stackId, childIndex, targetX, targetY) {
     };
     if (!session.droppedImages) session.droppedImages = [];
     session.droppedImages.push(newDropped);
-    saveSessions();
+    await forceSaveSessions();  // 立即保存，确保移出操作持久化
     console.log(`[移出Stack调试] 已添加为独立画布项, dropId=${dropId}`);
   }
 
@@ -1951,10 +1970,10 @@ export async function removeFromStack(stackId, childIndex, targetX, targetY) {
     if (stackIndex !== -1) {
       session.stacks.splice(stackIndex, 1);
       console.log('[移出Stack调试] 堆叠组为空，已删除整个组');
-      saveSessions();
+      await forceSaveSessions();
     }
   } else {
-    saveSessions();
+    await forceSaveSessions();
   }
 
   await rebuildCanvasFromSession();

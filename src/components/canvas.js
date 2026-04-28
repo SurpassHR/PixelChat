@@ -451,9 +451,9 @@ document.addEventListener('keydown', async e => {
     await window.batchRemoveFromExpandedStack(_expandedStackId, indicesToRemove);
   }
 
-  // Remove regular canvas items
+  // Remove regular canvas items serially to avoid race conditions
   for (const id of regularIds) {
-    removeCanvasItemById(id);
+    await removeCanvasItemById(id);
   }
 
   // Clear selection after deletion
