@@ -3,11 +3,13 @@ from flask_cors import CORS
 import sqlite3, json, os, base64, uuid, time, shutil, threading, urllib.request, urllib.error, re as re_module, random, socket
 
 app = Flask(__name__)
-CORS(app, resources={r'/api/*': {'origins': '*', 'allow_headers': '*', 'expose_headers': '*'}})
+CORS(app, resources={r'/api/*': {'origins': '*', 'allow_headers': '*', 'expose_headers': '*', 'supports_credentials': True}})
 
 @app.after_request
 def add_response_headers(response):
-    response.headers['Access-Control-Allow-Origin'] = '*'
+    origin = request.headers.get('Origin', '')
+    response.headers['Access-Control-Allow-Origin'] = origin or '*'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
     response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
