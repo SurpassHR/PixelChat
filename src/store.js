@@ -371,48 +371,16 @@ function saveSessions() {
   debouncedBackendSync();
 }
 
-const STORAGE_ACTIVE_KEY = 'image-gen-active-session';
-
-function loadActiveIdFromLocalStorage() {
-  try {
-    const stored = localStorage.getItem(STORAGE_ACTIVE_KEY);
-    if (stored && stored !== 'undefined') return stored;
-  } catch (e) { console.log('[加载] localStorage active 不可用:', e.message); }
-  return '';
-}
-
-function saveActiveIdToLocalStorage(id) {
-  try {
-    if (id) localStorage.setItem(STORAGE_ACTIVE_KEY, id);
-    else localStorage.removeItem(STORAGE_ACTIVE_KEY);
-  } catch (e) { console.log('[保存] localStorage active 不可用:', e.message); }
-}
-
 async function loadActiveId() {
-  const localId = loadActiveIdFromLocalStorage();
-  if (localId) {
-    console.log('[加载] 使用 localStorage 中的会话 ID:', localId);
-    beaconPost('/api/active', { id: localId });
-    return localId;
-  }
-
-  let backendId = '';
   try {
     const val = await apiGet('/api/active');
-    if (val) backendId = val;
+    if (val) return val;
   } catch (e) { console.log('[加载] 后端 active 不可用:', e.message); }
-
-  if (backendId) {
-    saveActiveIdToLocalStorage(backendId);
-    return backendId;
-  }
-
   return '';
 }
 
 function saveActiveId(id) {
   beaconPost('/api/active', { id });
-  saveActiveIdToLocalStorage(id);
 }
 
 // --------------------------------------------------------------
@@ -624,12 +592,29 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
   return item;
 }
 
+// 防重复粘贴缓存：短时间内相同 hash 的图片只添加一次
+let _lastAddedImageHash = null;
+let _lastAddedImageTime = 0;
+
+// 素材库防重复添加缓存
+let _lastAddedMaterialHash = null;
+let _lastAddedMaterialTime = 0;
+
 export async function addDroppedImage(dataUrl) {
   const session = state.sessions[state.currentSessionId];
   if (!session) return null;
 
-  const savedUrl = await ensureImageUrl(dataUrl);
   const hash = await computeDataUrlHash(dataUrl);
+  const now = Date.now();
+  // 如果 500ms 内添加过相同 hash 的图片，认为是重复触发，直接忽略
+  if (_lastAddedImageHash === hash && now - _lastAddedImageTime < 500) {
+    console.log('[addDroppedImage] 忽略重复添加，hash:', hash);
+    return null;
+  }
+  _lastAddedImageHash = hash;
+  _lastAddedImageTime = now;
+
+  const savedUrl = await ensureImageUrl(dataUrl);
 
   const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
   session.droppedImages = session.droppedImages || [];
@@ -933,6 +918,22 @@ async function loadMaterials() {
     if (response && typeof response === 'object' && !Array.isArray(response)) {
       let materials = response.materials || [];
       let materialStacks = response.materialStacks || [];
+      
+      // 去重合并：相同 dataHash 的素材只保留 addedAt 最早的一个
+      const uniqueMap = new Map();
+      for (const mat of materials) {
+        if (!uniqueMap.has(mat.dataHash) || uniqueMap.get(mat.dataHash).addedAt > mat.addedAt) {
+          uniqueMap.set(mat.dataHash, mat);
+        }
+      }
+      const dedupedMaterials = Array.from(uniqueMap.values());
+      if (dedupedMaterials.length !== materials.length) {
+        console.log(`[加载] 素材库去重：原 ${materials.length} 个，去重后 ${dedupedMaterials.length} 个`);
+        materials = dedupedMaterials;
+        // 如果有去重，将去重后的数据写回后端
+        await apiPost('/api/materials', { materials, materialStacks });
+      }
+      
       // 确保每个素材有必要的字段
       materials.forEach(m => {
         if (!m.category) m.category = 'Imported';
@@ -1012,18 +1013,69 @@ function saveMaterials() {
 }
 
 export async function addMaterial(name, dataUrl, category = 'Imported', forceDetach = false, prompt = null, refImages = []) {
-  const hash = await computeDataUrlHash(dataUrl);
-  const existing = state.materials.find(m => m.dataHash === hash);
+  // 辅助函数：从本地 URL 获取图片内容哈希
+  async function getContentHashFromUrl(url) {
+    try {
+      const fullUrl = url.startsWith('/') ? getStorageBase() + url : url;
+      const response = await fetch(fullUrl);
+      const blob = await response.blob();
+      const base64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.readAsDataURL(blob);
+      });
+      return await computeDataUrlHash(base64);
+    } catch (err) {
+      console.error('获取图片内容哈希失败:', err);
+      return null;
+    }
+  }
+
+  let finalImageUrl = dataUrl;
+  let contentHash = null;
+
+  // 如果已经是本地 API 路径，直接使用该 URL，并尝试从后端获取真实内容哈希
+  if (dataUrl.startsWith('/api/images/') || dataUrl.includes('/api/images/')) {
+    // 提取 ID 或直接使用完整 URL
+    finalImageUrl = resolveBackendUrl(dataUrl);
+    contentHash = await getContentHashFromUrl(dataUrl);
+    if (!contentHash) {
+      // 如果无法获取内容哈希，回退到基于 URL 的哈希（不推荐，但避免阻塞）
+      contentHash = await computeDataUrlHash(dataUrl);
+    }
+  } else {
+    // 原始 dataUrl（如 data:image/...）
+    contentHash = await computeDataUrlHash(dataUrl);
+    finalImageUrl = await ensureImageUrl(dataUrl);
+  }
+
+  const now = Date.now();
+  // 使用内容哈希进行短时去重（30 秒窗口）
+  if (_lastAddedMaterialHash === contentHash && now - _lastAddedMaterialTime < 30000) {
+    const existingMat = state.materials.find(m => m.dataHash === contentHash);
+    if (existingMat) {
+      console.log('[addMaterial] 忽略重复添加，hash:', contentHash);
+      if (prompt && existingMat.prompt === undefined) existingMat.prompt = prompt;
+      if ((refImages?.length) && (existingMat.refImages === undefined || existingMat.refImages.length === 0)) existingMat.refImages = refImages;
+      if (existingMat.prompt !== undefined || existingMat.refImages !== undefined) saveMaterials();
+      return existingMat;
+    }
+    console.warn('[addMaterial] 缓存命中但素材不存在，继续添加');
+  }
+  _lastAddedMaterialHash = contentHash;
+  _lastAddedMaterialTime = now;
+
+  // 检查素材库中是否已存在相同内容哈希的素材（持久化去重）
+  const existing = state.materials.find(m => m.dataHash === contentHash);
   if (existing) {
-    // 如果需要强制移出堆叠组（例如用户拖拽到根区域时），通过 forceDetach 参数控制
     if (forceDetach && existing.parentStackId) {
+      // 强制移出堆叠组逻辑（保持不变）
       console.log(`[addMaterial] 强制将素材 "${existing.name}" 从堆叠组 ${existing.parentStackId} 中移出`);
       const oldStack = state.materialStacks.find(s => s.id === existing.parentStackId);
       if (oldStack) {
         oldStack.children = oldStack.children.filter(cid => cid !== existing.id);
         if (oldStack.children.length === 0) {
           state.materialStacks = state.materialStacks.filter(s => s.id !== oldStack.id);
-          console.log(`[addMaterial] 原堆叠组 ${oldStack.id} 已变空，已删除`);
         } else {
           const firstChild = state.materials.find(m => m.id === oldStack.children[0]);
           if (firstChild) oldStack.thumbnail = firstChild.dataUrl;
@@ -1035,29 +1087,27 @@ export async function addMaterial(name, dataUrl, category = 'Imported', forceDet
       if (listeners['materialStacks']) listeners['materialStacks']?.forEach(fn => fn());
       setState({ statusText: `素材“${existing.name}”已从堆叠组移出` });
     } else {
-      // 正常重复素材，不做任何改动，仅提示
-      console.log(`[addMaterial] 素材 "${existing.name}" 已存在，跳过添加`);
+      console.log(`[addMaterial] 素材已存在，跳过添加`);
       setState({ statusText: '素材已存在，跳过添加' });
     }
-    // 即使素材已存在，如果传入了新的 prompt/refImages 且现有素材缺失，则更新
-    if (existing.prompt === undefined && prompt) existing.prompt = prompt;
-    if ((existing.refImages === undefined || existing.refImages.length === 0) && refImages && refImages.length) existing.refImages = refImages;
+    if (prompt && existing.prompt === undefined) existing.prompt = prompt;
+    if ((refImages?.length) && (existing.refImages === undefined || existing.refImages.length === 0)) existing.refImages = refImages;
     if (existing.prompt !== undefined || existing.refImages !== undefined) saveMaterials();
     return existing;
   }
 
-  const savedUrl = await ensureImageUrl(dataUrl);
+  // 创建新素材
   const mat = {
     id: generateId(),
     name,
-    dataUrl: resolveBackendUrl(savedUrl),
-    dataHash: hash,
+    dataUrl: finalImageUrl,
+    dataHash: contentHash,
     addedAt: Date.now(),
-    category,          // 'Generated' 或 'Imported'
+    category,
     type: 'image',
-    parentStackId: null,   // 所属堆叠组 ID，若为 null 表示独立素材
-    prompt: prompt || null,   // 提示词（可能为空）
-    refImages: refImages || [] // 参考图数组
+    parentStackId: null,
+    prompt: prompt || null,
+    refImages: refImages || []
   };
   state.materials.push(mat);
   saveMaterials();

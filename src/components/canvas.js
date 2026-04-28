@@ -556,7 +556,8 @@ function onMouseUp(e) {
 export async function handlePasteFromClipboard() {
   try {
     const items = await navigator.clipboard.read();
-    let pasted = 0;
+    // 使用 Map 存储 哈希 -> dataUrl，实现基于内容去重
+    const uniqueImages = new Map();
     for (const item of items) {
       const imgType = item.types.find(t => t.startsWith('image/'));
       if (imgType) {
@@ -567,9 +568,19 @@ export async function handlePasteFromClipboard() {
           reader.onerror = reject;
           reader.readAsDataURL(blob);
         });
-        await addDroppedImage(dataUrl);
-        pasted++;
+        // 计算内容哈希（基于 dataUrl 的 base64 部分）
+        const base64Data = dataUrl.split(',')[1] || dataUrl;
+        const hashBuffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(base64Data));
+        const hash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+        if (!uniqueImages.has(hash)) {
+          uniqueImages.set(hash, dataUrl);
+        }
       }
+    }
+    let pasted = 0;
+    for (const dataUrl of uniqueImages.values()) {
+      const result = await addDroppedImage(dataUrl);
+      if (result !== null) pasted++;
     }
     if (pasted > 0) {
       setState({ statusText: `已粘贴 ${pasted} 张图片` });
