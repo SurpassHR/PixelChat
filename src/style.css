@@ -1519,7 +1519,7 @@ body {
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(232, 184, 109, 0.12);
   border-radius: 20px;
-  padding: 4px 4px 4px 8px;
+  padding: 7px 4px 7px 8px;
   min-height: 52px;
   transition: border-color 0.3s, box-shadow 0.6s ease-out;
 }

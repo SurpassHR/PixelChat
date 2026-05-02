@@ -44,8 +44,9 @@ describe('内联 Monaco 编辑器 — CSS', () => {
     expect(rawCss).toMatch(/\.prompt-input-row\s*\{[^}]*min-height\s*:\s*52px/s);
   });
 
-  it('.prompt-input-row 使用 align-items: flex-end（按钮底部固定）', () => {
+  it('.prompt-input-row 使用 align-items: flex-end + 对称 padding（按钮视觉居中）', () => {
     expect(rawCss).toMatch(/\.prompt-input-row\s*\{[^}]*align-items\s*:\s*flex-end/s);
+    expect(rawCss).toMatch(/\.prompt-input-row\s*\{[^}]*padding\s*:\s*7px\s+4px\s+7px\s+8px/s);
   });
 
   it('#promptMonacoEditor CSS 中不设置静态 height（由 JS 管理）', () => {
