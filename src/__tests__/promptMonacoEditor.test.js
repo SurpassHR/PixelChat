@@ -44,6 +44,10 @@ describe('内联 Monaco 编辑器 — CSS', () => {
     expect(rawCss).toMatch(/\.prompt-input-row\s*\{[^}]*min-height\s*:\s*52px/s);
   });
 
+  it('.prompt-input-row 使用 align-items: flex-end（按钮底部固定）', () => {
+    expect(rawCss).toMatch(/\.prompt-input-row\s*\{[^}]*align-items\s*:\s*flex-end/s);
+  });
+
   it('#promptMonacoEditor CSS 中不设置静态 height（由 JS 管理）', () => {
     expect(rawCss).not.toMatch(/#promptMonacoEditor\s*\{[^}]*height\s*:/s);
   });
@@ -86,13 +90,12 @@ describe('内联 Monaco 编辑器 — JS 展开/收起逻辑', () => {
     expect(rawJs).toMatch(/Math\.min\s*\(\s*contentHeight\s*,\s*maxHeight\s*\)/);
   });
 
-  it('expanded=false 时高度为 30px 且 align-items 为 center', () => {
+  it('expanded=false 时高度为 30px', () => {
     expect(rawJs).toMatch(/height\s*=\s*30/);
-    expect(rawJs).toMatch(/alignItems\s*=\s*'center'/);
   });
 
-  it('expanded=true 时 align-items 为 flex-end', () => {
-    expect(rawJs).toMatch(/alignItems\s*=\s*'flex-end'/);
+  it('JS 中不切换 align-items（由 CSS flex-end 固定控制）', () => {
+    expect(rawJs).not.toMatch(/alignItems/);
   });
 
   it('监听 onDidFocusEditorWidget 展开编辑器', () => {
