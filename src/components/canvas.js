@@ -451,8 +451,16 @@ document.addEventListener('keydown', async e => {
     await window.batchRemoveFromExpandedStack(_expandedStackId, indicesToRemove);
   }
 
-  // Remove regular canvas items serially to avoid race conditions
-  for (const id of regularIds) {
+  // Remove regular canvas items serially to avoid race conditions.
+  // Sort by messageIndex descending so that earlier deletions don't shift
+  // the indices that later deletions rely on within session.messages.
+  const sortedRegularIds = [...regularIds].sort((a, b) => {
+    const { canvasItems } = getState();
+    const itemA = canvasItems.find(i => i.itemId === a);
+    const itemB = canvasItems.find(i => i.itemId === b);
+    return (itemB?.messageIndex ?? -1) - (itemA?.messageIndex ?? -1);
+  });
+  for (const id of sortedRegularIds) {
     await removeCanvasItemById(id);
   }
 

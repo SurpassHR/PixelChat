@@ -174,8 +174,16 @@ async function handleAction(action) {
     case 'deleteImage': {
       const itemIds = getTargetItemIds();
       if (itemIds.length === 0) break;
-      for (const id of itemIds) {
-        removeCanvasItemById(id);
+      // Sort by messageIndex descending so that earlier deletions don't shift
+      // the indices that later deletions rely on within session.messages.
+      const { canvasItems } = getState();
+      const sortedIds = [...itemIds].sort((a, b) => {
+        const itemA = canvasItems.find(i => i.itemId === a);
+        const itemB = canvasItems.find(i => i.itemId === b);
+        return (itemB?.messageIndex ?? -1) - (itemA?.messageIndex ?? -1);
+      });
+      for (const id of sortedIds) {
+        await removeCanvasItemById(id);
       }
       showToast(`已删除 ${itemIds.length} 张图片`, 'success');
       break;
@@ -323,7 +331,12 @@ async function handleAction(action) {
     }
     case 'clearCanvas': {
       const items = [...getState().canvasItems];
-      items.forEach(item => removeCanvasItemById(item.itemId));
+      // Sort by messageIndex descending so that deletions don't shift indices
+      // within session.messages for subsequent items.
+      items.sort((a, b) => (b.messageIndex ?? -1) - (a.messageIndex ?? -1));
+      for (const item of items) {
+        await removeCanvasItemById(item.itemId);
+      }
       break;
     }
   }
