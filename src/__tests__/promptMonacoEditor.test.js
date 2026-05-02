@@ -60,6 +60,11 @@ describe('内联 Monaco 编辑器 — CSS', () => {
   it('#promptMonacoEditor 设置 transition: height 0.2s ease-out（平滑过渡）', () => {
     expect(rawCss).toMatch(/#promptMonacoEditor\s*\{[^}]*transition\s*:\s*height\s+0\.2s\s+ease-out/s);
   });
+
+  it('#promptMonacoEditor 和 .model-tag 设置 align-self: center（收起时居中）', () => {
+    expect(rawCss).toMatch(/#promptMonacoEditor\s*\{[^}]*align-self\s*:\s*center/s);
+    expect(rawCss).toMatch(/\.model-tag\s*\{[^}]*align-self\s*:\s*center/s);
+  });
 });
 
 describe('内联 Monaco 编辑器 — HTML', () => {
@@ -95,8 +100,9 @@ describe('内联 Monaco 编辑器 — JS 展开/收起逻辑', () => {
     expect(rawJs).toMatch(/height\s*=\s*30/);
   });
 
-  it('JS 中不切换 align-items（由 CSS flex-end 固定控制）', () => {
-    expect(rawJs).not.toMatch(/alignItems/);
+  it('收起时 editor alignSelf 为 center（居中），展开时切换 flex-end', () => {
+    expect(rawJs).toMatch(/alignSelf\s*=\s*'flex-end'/);
+    expect(rawJs).toMatch(/alignSelf\s*=\s*'center'/);
   });
 
   it('监听 onDidFocusEditorWidget 展开编辑器', () => {

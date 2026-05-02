@@ -790,8 +790,10 @@ export function initPromptArea() {
       const contentHeight = lineCount * 22 + 8;
       const maxHeight = window.innerHeight * 0.4;
       height = Math.min(contentHeight, maxHeight);
+      container.style.alignSelf = 'flex-end';
     } else {
       height = 30;
+      container.style.alignSelf = 'center';
     }
     container.style.height = height + 'px';
     _monacoEditor.layout({ width: container.clientWidth, height: height });
