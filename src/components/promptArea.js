@@ -61,7 +61,7 @@ function renderAttachments() {
     .map((img, i) => {
       const src = img.dataUrl ? resolveBackendUrl(img.dataUrl) : '';
       return `<div class="attachment-item">
-        <img src="${src}" alt="ref" title="${img.name}">
+        <div class="attachment-thumb"><img src="${src}" alt="ref" title="${img.name}"></div>
         <button class="remove" data-ridx="${i}">×</button>
       </div>`;
     })
