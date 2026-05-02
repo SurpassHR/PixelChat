@@ -22,8 +22,7 @@ const state = {
   batchSize: 1,
   aspectRatio: '1:1',
   selectedFamilyId: '',
-  selectedResolution: '1K',
-  simpleMode: false
+  selectedResolution: '1K'
 };
 
 // --------------------------------------------------------------
@@ -105,6 +104,31 @@ export function selectFamilyRatioResolution(familyId, ratio, resolution) {
     setState({ selectedProvider: model.provider });
   }
   return true;
+}
+
+// 根据模型 ID 检测模型类型
+export function getModelType(modelId) {
+  if (!modelId) return null;
+  const lower = modelId.toLowerCase();
+  if (lower.includes('gpt')) return 'gpt';
+  if (lower.includes('gemini')) return 'gemini';
+  if (lower.includes('imagen')) return 'imagen';
+  return null;
+}
+
+// 反向解析 model ID 到 family/ratio/resolution
+export function resolveModelToFamily(modelId) {
+  if (!modelId) return null;
+  for (const family of MODEL_FAMILIES) {
+    for (const [ratio, resList] of Object.entries(family.ratios)) {
+      for (const res of resList) {
+        if (family.buildModelId(ratio, res) === modelId) {
+          return { familyId: family.id, ratio, resolution: res };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 // --------------------------------------------------------------
@@ -313,8 +337,7 @@ function debouncedBackendSync() {
         batchSize: state.batchSize,
         aspectRatio: state.aspectRatio,
         selectedFamilyId: state.selectedFamilyId,
-        selectedResolution: state.selectedResolution,
-        simpleMode: state.simpleMode
+        selectedResolution: state.selectedResolution
       });
     } catch { }
   }, 200);
@@ -1576,7 +1599,6 @@ export async function initStore() {
     if (settings.aspectRatio !== undefined) state.aspectRatio = settings.aspectRatio;
     if (settings.selectedFamilyId !== undefined) state.selectedFamilyId = settings.selectedFamilyId;
     if (settings.selectedResolution !== undefined) state.selectedResolution = settings.selectedResolution;
-    if (settings.simpleMode !== undefined) state.simpleMode = settings.simpleMode;
   }
   
   // 恢复当前会话 ID

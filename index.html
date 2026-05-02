@@ -137,14 +137,8 @@
           </div>
         </div>
         <div class="popover-section">
-          <div class="popover-section-label">模型系列</div>
-          <div class="family-row" id="familyRow">
-            <button class="family-btn" data-family="gpt-image">GPT Image</button>
-            <button class="family-btn" data-family="gemini-3.0-pro-image">Gemini 3.0 Pro</button>
-            <button class="family-btn" data-family="gemini-3.1-flash-image">Gemini 3.1 Flash</button>
-            <button class="family-btn" data-family="imagen-4.0">Imagen 4.0</button>
-          </div>
-          <div class="model-select-wrapper" id="modelSelectWrapper" style="display:none">
+          <div class="popover-section-label">模型选择</div>
+          <div class="model-select-wrapper" id="modelSelectWrapper">
             <div class="custom-model-selector" id="customModelSelector">
               <button class="custom-model-trigger" id="customModelTrigger">
                 <span class="trigger-name" id="customModelName">选择模型</span>
@@ -179,11 +173,6 @@
           <label class="popover-toggle">
             <span>复用参考图</span>
             <input type="checkbox" id="popoverReuseRef">
-            <span class="toggle-indicator"></span>
-          </label>
-          <label class="popover-toggle">
-            <span>简易模式</span>
-            <input type="checkbox" id="popoverSimpleMode">
             <span class="toggle-indicator"></span>
           </label>
         </div>

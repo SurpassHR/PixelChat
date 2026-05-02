@@ -1,4 +1,4 @@
-import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask, MODEL_FAMILIES, getModelId, selectFamilyRatioResolution, saveCurrentSessionDraft, resolveBackendUrl } from '../store.js';
+import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask, MODEL_FAMILIES, getModelId, getModelType, resolveModelToFamily, selectFamilyRatioResolution, saveCurrentSessionDraft, resolveBackendUrl } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
 import { selectModel, fetchModels } from './modelSelector.js';
@@ -201,12 +201,11 @@ async function generate() {
 }
 
 function syncSettingsState() {
-  const { batchSize, reusePrompt, reuseRef, aspectRatio, selectedFamilyId, selectedResolution, simpleMode, selectedModelId, models } = getState();
+  const { batchSize, reusePrompt, reuseRef, aspectRatio, selectedFamilyId, selectedResolution, selectedModelId, models } = getState();
 
-  // 胶囊栏中的模型标签 — 根据简易模式决定显示内容
+  // 胶囊栏中的模型标签
   let modelDisplayName = '';
-  if (simpleMode && selectedModelId) {
-    // 简易模式：显示选中的模型 ID
+  if (selectedModelId) {
     modelDisplayName = selectedModelId;
   } else if (selectedFamilyId) {
     const family = MODEL_FAMILIES.find(f => f.id === selectedFamilyId);
@@ -221,10 +220,6 @@ function syncSettingsState() {
   const tagRatio = $('#modelTagRatio');
   if (tagRatio) tagRatio.textContent = aspectRatio;
 
-  // 弹出面板中的模型名（旧元素兼容）
-  const popoverName = $('#popoverModelName');
-  if (popoverName) popoverName.textContent = simpleMode && selectedModelId ? selectedModelId : (selectedFamilyId ? (MODEL_FAMILIES.find(f => f.id === selectedFamilyId)?.label || selectedFamilyId) : '未选择');
-
   // 比例按钮
   $$('.ratio-btn').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.ratio === aspectRatio);
@@ -235,11 +230,6 @@ function syncSettingsState() {
     btn.classList.toggle('active', parseInt(btn.dataset.mult) <= batchSize);
   });
 
-  // 系列按钮
-  $$('.family-btn').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.family === selectedFamilyId);
-  });
-
   // 分辨率按钮 — 根据当前 family+ratio 动态启用/禁用
   renderResolutionButtons();
 
@@ -248,9 +238,6 @@ function syncSettingsState() {
   if (promptCb) promptCb.checked = reusePrompt;
   const refCb = $('#popoverReuseRef');
   if (refCb) refCb.checked = reuseRef;
-
-  // 根据提供商模板更新UI（比例/分辨率行显示与否）
-  updatePopoverByProvider();
 }
 
 // 根据当前 family + ratio 渲染分辨率按钮状态
@@ -271,61 +258,6 @@ function renderResolutionButtons() {
       btn.style.display = '';
     }
   });
-}
-
-// 提供商UI模板映射
-const PROVIDER_UI_TEMPLATES = {
-  // Google Gemini: 显示完整面板（比例/分辨率/模型系列）
-  google: 'full',
-  // OpenAI GPT: 仅显示模型选择框
-  openai: 'simple',
-};
-
-// 获取当前提供商的UI模板类型
-function getProviderTemplate(providerName) {
-  if (!providerName) return 'full'; // 默认显示完整面板
-  const lowerName = providerName.toLowerCase();
-  if (lowerName.includes('gemini')) return PROVIDER_UI_TEMPLATES.google;
-  if (lowerName.includes('gpt') || lowerName.includes('openai')) return PROVIDER_UI_TEMPLATES.openai;
-  // 可以根据需要增加更多映射规则
-  return 'full';
-}
-
-// 根据简易模式开关更新弹窗UI显示
-function updatePopoverByProvider() {
-  const { simpleMode } = getState();
-  
-  console.log('[updatePopoverByProvider] 简易模式状态:', simpleMode);
-
-  // 获取需要控制显示/隐藏的元素
-  const ratioGrid = document.querySelector('.ratio-grid');
-  const ratioSection = ratioGrid ? ratioGrid.closest('.popover-section') : null;
-  const resolutionRow = $('#resolutionRow');
-  const familyRow = $('#familyRow');
-  const modelSelectWrapper = $('#modelSelectWrapper');
-  
-  console.log('[updatePopoverByProvider] 元素存在性:', {
-    ratioSection: !!ratioSection,
-    resolutionRow: !!resolutionRow,
-    familyRow: !!familyRow,
-    modelSelectWrapper: !!modelSelectWrapper
-  });
-
-  if (simpleMode) {
-    // 简易模式：隐藏比例/分辨率/模型系列按钮，显示下拉框
-    if (ratioSection) ratioSection.style.display = 'none';
-    if (resolutionRow) resolutionRow.style.display = 'none';
-    if (familyRow) familyRow.style.display = 'none';
-    if (modelSelectWrapper) modelSelectWrapper.style.display = '';
-    console.log('[popover] 简易模式：隐藏比例/分辨率/模型系列按钮，显示下拉框');
-  } else {
-    // 完整模式：显示所有选项，隐藏下拉框
-    if (ratioSection) ratioSection.style.display = '';
-    if (resolutionRow) resolutionRow.style.display = '';
-    if (familyRow) familyRow.style.display = '';
-    if (modelSelectWrapper) modelSelectWrapper.style.display = 'none';
-    console.log('[popover] 完整模式：显示比例/分辨率/模型系列按钮，隐藏下拉框');
-  }
 }
 
 export function initPromptArea() {
@@ -432,13 +364,14 @@ export function initPromptArea() {
 
   // --- 初始同步 ---
   syncSettingsState();
-  // 额外确保第一次更新 UI（基于当前提供商）
-  updatePopoverByProvider();
 
   // --- 弹出面板开/关（带动画） ---
   function openPopover() {
-    // 打开前确保 UI 基于当前提供商正确显示
-    updatePopoverByProvider();
+    // 打开前确保配置面板基于当前模型正确显示
+    const { selectedModelId } = getState();
+    if (selectedModelId) {
+      renderConfigPanelByModelType(selectedModelId);
+    }
     popover.style.display = 'flex';
     popover.classList.remove('popover-exit');
     void popover.offsetWidth;
@@ -516,29 +449,6 @@ export function initPromptArea() {
     });
   });
 
-  // --- 模型系列按钮 ---
-  $$('.family-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const familyId = btn.dataset.family;
-      if (!familyId) return;
-      const family = MODEL_FAMILIES.find(f => f.id === familyId);
-      if (!family) return;
-      const { aspectRatio, selectedResolution } = getState();
-      // 当前比例对所选系列不可用时，自动选第一个可用比例
-      let ratio = aspectRatio;
-      if (!family.ratios[ratio]) {
-        ratio = Object.keys(family.ratios)[0];
-      }
-      let resolution = selectedResolution;
-      const resList = family.ratios[ratio];
-      if (!resList.includes(resolution)) {
-        resolution = resList[0];
-      }
-      selectFamilyRatioResolution(familyId, ratio, resolution);
-      syncSettingsState();
-    });
-  });
-
   // --- 分辨率按钮 ---
   $$('#resolutionRow .resolution-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -568,17 +478,7 @@ export function initPromptArea() {
     });
   }
 
-  // --- 简易模式开关 ---
-  const simpleModeToggle = $('#popoverSimpleMode');
-  if (simpleModeToggle) {
-    const { simpleMode } = getState();
-    simpleModeToggle.checked = simpleMode;
-    simpleModeToggle.addEventListener('change', () => {
-      setState({ simpleMode: simpleModeToggle.checked });
-    });
-  }
-
-  // --- 简易模式下自定义模型下拉框 ---
+  // --- 自定义模型下拉框 ---
   const customModelSelector = $('#customModelSelector');
   const customModelTrigger = $('#customModelTrigger');
   const customModelDropdown = $('#customModelDropdown');
@@ -587,7 +487,48 @@ export function initPromptArea() {
   const customModelRefresh = $('#customModelRefresh');
   
   let isDropdownOpen = false;
-  
+
+  // 根据选中的模型 ID 动态配置面板（比例/分辨率可见性）
+  function renderConfigPanelByModelType(modelId) {
+    const type = getModelType(modelId);
+    const resolved = resolveModelToFamily(modelId);
+    const ratioSection = document.querySelector('.ratio-grid')?.closest('.popover-section');
+    const resolutionRow = $('#resolutionRow');
+
+    if (resolved) {
+      // 同步 family/ratio/resolution 到 state
+      const updates = {
+        selectedFamilyId: resolved.familyId,
+        aspectRatio: resolved.ratio,
+        selectedResolution: resolved.resolution
+      };
+      setState(updates);
+    }
+
+    // 根据模型类型显示/隐藏配置项
+    if (type === 'gpt') {
+      // GPT: 5种比例可见，分辨率隐藏
+      if (ratioSection) ratioSection.style.display = '';
+      if (resolutionRow) resolutionRow.style.display = 'none';
+      $$('.ratio-btn').forEach(btn => { btn.style.display = ''; });
+    } else if (type === 'gemini') {
+      // Gemini: 5种比例可见，分辨率可见
+      if (ratioSection) ratioSection.style.display = '';
+      if (resolutionRow) resolutionRow.style.display = '';
+      $$('.ratio-btn').forEach(btn => { btn.style.display = ''; });
+    } else if (type === 'imagen') {
+      // Imagen: 仅 9:16 和 16:9 比例可见，分辨率隐藏
+      if (ratioSection) ratioSection.style.display = '';
+      if (resolutionRow) resolutionRow.style.display = 'none';
+      $$('.ratio-btn').forEach(btn => {
+        const ratio = btn.dataset.ratio;
+        btn.style.display = (ratio === '9:16' || ratio === '16:9') ? '' : 'none';
+      });
+    }
+
+    syncSettingsState();
+  }
+
   // 渲染自定义模型列表（带分组、搜索）
   function renderCustomModelList(filterText = '') {
     if (!customModelList) return;
@@ -730,16 +671,25 @@ export function initPromptArea() {
     }
     updateTriggerName();
   });
-  subscribe('selectedModelId', updateTriggerName);
-  
+  subscribe('selectedModelId', () => {
+    updateTriggerName();
+    // 模型变更时同步配置面板（比例/分辨率可见性）
+    const { selectedModelId } = getState();
+    if (selectedModelId) {
+      renderConfigPanelByModelType(selectedModelId);
+    }
+  });
+
   // 初始化显示
   updateTriggerName();
   if (customModelList) {
     renderCustomModelList('');
   }
-  
-  // 注意：原来的 modelSelectWrapper 仍然控制显示隐藏，但内容已替换为自定义结构
-  const modelSelectWrapper = $('#modelSelectWrapper');
+  // 恢复配置面板状态（比例/分辨率可见性）
+  const { selectedModelId: initModelId } = getState();
+  if (initModelId) {
+    renderConfigPanelByModelType(initModelId);
+  }
 
   // --- + 按钮添加参考图 ---
   const fileInput = $('#attachFileInput');
@@ -767,10 +717,6 @@ export function initPromptArea() {
   subscribe('selectedFamilyId', syncSettingsState);
   subscribe('selectedResolution', syncSettingsState);
   subscribe('models', syncSettingsState);
-  subscribe('simpleMode', () => {
-    updatePopoverByProvider();
-    syncSettingsState();
-  });
   subscribe('statusText', (newStatus) => {
     if (!newStatus) return;
     // Remove generating glow when idle or error
