@@ -61,9 +61,9 @@ describe('内联 Monaco 编辑器 — CSS', () => {
     expect(rawCss).toMatch(/#promptMonacoEditor\s*\{[^}]*transition\s*:\s*height\s+0\.2s\s+ease-out/s);
   });
 
-  it('#promptMonacoEditor 和 .model-tag 设置 align-self: center（收起时居中）', () => {
+  it('#promptMonacoEditor 设置 align-self: center（收起时居中），modelTag 用 margin-bottom 锁定居中位置', () => {
     expect(rawCss).toMatch(/#promptMonacoEditor\s*\{[^}]*align-self\s*:\s*center/s);
-    expect(rawCss).toMatch(/\.model-tag\s*\{[^}]*align-self\s*:\s*center/s);
+    expect(rawCss).toMatch(/\.model-tag\s*\{[^}]*margin-bottom\s*:\s*5px/s);
   });
 });
 
