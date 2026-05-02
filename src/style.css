@@ -1512,7 +1512,7 @@ body {
 /* Prompt input bar - glass capsule */
 .prompt-input-row {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 6px;
   background: rgba(26, 24, 21, 0.85);
   backdrop-filter: blur(20px);
