@@ -1433,8 +1433,8 @@ async function apiCancelTask(taskId) {
   return res.json();
 }
 
-export async function submitTask({ prompt, model, provider, refs }) {
-  const task = await apiPostTask({ prompt, model, provider, refs });
+export async function submitTask({ prompt, model, provider, refs, aspectRatio }) {
+  const task = await apiPostTask({ prompt, model, provider, refs, aspectRatio });
   return { id: task.id };
 }
 

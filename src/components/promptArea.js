@@ -104,7 +104,7 @@ let _monacoEditor = null;
 let _monacoVisible = false;
 
 async function generate() {
-  const { selectedModelId, selectedProvider, refImages, reusePrompt, reuseRef, batchSize } = getState();
+  const { selectedModelId, selectedProvider, refImages, reusePrompt, reuseRef, batchSize, aspectRatio } = getState();
 
   // Sync Monaco content before generating, then collapse
   if (_monacoVisible && _monacoEditor) {
@@ -163,7 +163,7 @@ async function generate() {
   // Submit tasks to backend queue in parallel
   const refs = enrichedRefs;
   const submissions = Array.from({ length: batchSize }, () =>
-    submitTask({ prompt, model: selectedModelId, provider: selectedProvider, refs })
+    submitTask({ prompt, model: selectedModelId, provider: selectedProvider, refs, aspectRatio })
   );
   const results = await Promise.allSettled(submissions);
 

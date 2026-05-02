@@ -391,7 +391,14 @@ def _store_image_blob(b64_data, mime_type='image/png'):
 def _download_and_store_image(url):
     """Download a remote image and store it locally for persistent access."""
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Sec-Fetch-Dest': 'image',
+            'Sec-Fetch-Mode': 'no-cors',
+            'Sec-Fetch-Site': 'cross-site',
+        })
         with urllib.request.urlopen(req, timeout=60) as resp:
             raw_data = resp.read()
             img_b64 = base64.b64encode(raw_data).decode('ascii')
@@ -527,32 +534,65 @@ def _execute_task(task_id):
                 key = provider.get('api_key', '')
 
                 refs = task.get('refs', [])
-                if refs:
-                    content = [{'type': 'text', 'text': task['prompt']}]
-                    for ref in refs:
-                        data_url = ref.get('dataUrl', '')
-                        if data_url:
-                            content.append({
-                                'type': 'image_url',
-                                'image_url': {'url': data_url}
-                            })
-                else:
-                    content = task['prompt']
 
-                body = {
-                    'model': task['model'],
-                    'messages': [{'role': 'user', 'content': content}],
-                    'stream': True
-                }
+                # gpt-image-* 模型使用非流式 prompt/n/size 格式，其他模型使用流式 messages 格式
+                is_gpt_image = task['model'].startswith('gpt-image')
+
+                if is_gpt_image:
+                    size_map = {
+                        '1:1': '1024x1024',
+                        '3:4': '1024x1365',
+                        '4:3': '1365x1024',
+                        '9:16': '1024x1820',
+                        '16:9': '1820x1024',
+                    }
+                    image_size = size_map.get(task.get('aspectRatio', '1:1'), '1024x1024')
+                    body = {
+                        'model': task['model'],
+                        'prompt': task['prompt'],
+                        'n': 1,
+                        'size': image_size
+                    }
+                else:
+                    if refs:
+                        content = [{'type': 'text', 'text': task['prompt']}]
+                        for ref in refs:
+                            data_url = ref.get('dataUrl', '')
+                            if data_url:
+                                content.append({
+                                    'type': 'image_url',
+                                    'image_url': {'url': data_url}
+                                })
+                    else:
+                        content = task['prompt']
+
+                    body = {
+                        'model': task['model'],
+                        'messages': [{'role': 'user', 'content': content}],
+                        'stream': True
+                    }
 
                 encoded = json.dumps(body).encode('utf-8')
                 headers = {
                     'Content-Type': 'application/json',
                     'Authorization': f'Bearer {key}',
-                    'Connection': 'close'
+                    'Connection': 'close',
+                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    'Accept': 'application/json, text/plain, */*',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                    'Sec-Fetch-Dest': 'empty',
+                    'Sec-Fetch-Mode': 'cors',
+                    'Sec-Fetch-Site': 'same-origin',
+                    'Sec-Ch-Ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                    'Sec-Ch-Ua-Mobile': '?0',
+                    'Sec-Ch-Ua-Platform': '"Linux"',
                 }
 
                 request_url = build_api_url(base, '/v1/chat/completions')
+
+                # 保存请求信息到任务，供前端详情展示
+                task['request_url'] = request_url
+                task['request_body'] = json.dumps(body, ensure_ascii=False, indent=2)
                 # 打印请求详情（隐藏完整 API Key）
                 masked_key = key[:8] + '...' if len(key) > 8 else '(空)'
                 print(f'\n[后端请求] 任务 {task_id}')
@@ -585,184 +625,193 @@ def _execute_task(task_id):
                 thinking = ''
                 final_content = ''
 
-                with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
-                    # 穿透包装层找到底层 socket 设置读超时（多层 try/except 兜底）
-                    sock = None
-                    try:
-                        fp = resp.fp
-                        # BufferedReader → SocketIO → _sock
-                        if hasattr(fp, 'raw') and hasattr(fp.raw, '_sock'):
-                            sock = fp.raw._sock
-                        elif hasattr(fp, '_sock'):
-                            sock = fp._sock
-                    except Exception:
-                        pass
-                    if sock:
+                if is_gpt_image:
+                    # gpt-image 非流式响应：直接读取完整 JSON
+                    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                        raw = resp.read()
+                    resp_data = json.loads(raw.decode('utf-8'))
+                    thinking = ''
+                    final_content = resp_data.get('choices', [{}])[0].get('message', {}).get('content', '') or ''
+                    print(f'[非流式] 任务 {task_id} 收到响应，content 长度={len(final_content)}')
+                else:
+                    with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                        # 穿透包装层找到底层 socket 设置读超时（多层 try/except 兜底）
+                        sock = None
                         try:
-                            sock.settimeout(60)  # 初始 60s：为返回102等长处理留足时间
+                            fp = resp.fp
+                            # BufferedReader → SocketIO → _sock
+                            if hasattr(fp, 'raw') and hasattr(fp.raw, '_sock'):
+                                sock = fp.raw._sock
+                            elif hasattr(fp, '_sock'):
+                                sock = fp._sock
                         except Exception:
-                            sock = None
-                    stream_start_time = time.time()
-                    if sock:
-                        print(f'[流] 任务 {task_id} 连接建立，socket 超时=60s，等待首个 thinking...')
-                    else:
-                        print(f'[流] 任务 {task_id} 连接建立（使用线程定时器），等待首个 thinking...')
-                        # 无法获取 socket 时用线程定时器兜底：60s 后关闭连接触发异常
-                        _close_timer = threading.Timer(60.0, lambda: resp.close())
-                        _close_timer.daemon = True
-                        _close_timer.start()
-                    try:
-                        for line in resp:
-                            line = line.decode('utf-8', errors='replace').strip()
-                            if not line or not line.startswith('data:'):
-                                continue
-                            data_str = line[5:].strip()
-                            if data_str == '[DONE]':
-                                break
+                            pass
+                        if sock:
                             try:
-                                chunk = json.loads(data_str)
-                            except json.JSONDecodeError:
-                                continue
-
-                            # 不再因为短时间无思考内容而判定失败，允许长时间等待（例如返回102处理中）
+                                sock.settimeout(60)  # 初始 60s：为返回102等长处理留足时间
+                            except Exception:
+                                sock = None
+                        stream_start_time = time.time()
+                        if sock:
+                            print(f'[流] 任务 {task_id} 连接建立，socket 超时=60s，等待首个 thinking...')
+                        else:
+                            print(f'[流] 任务 {task_id} 连接建立（使用线程定时器），等待首个 thinking...')
+                            # 无法获取 socket 时用线程定时器兜底：60s 后关闭连接触发异常
+                            _close_timer = threading.Timer(60.0, lambda: resp.close())
+                            _close_timer.daemon = True
+                            _close_timer.start()
+                        try:
+                            for line in resp:
+                                line = line.decode('utf-8', errors='replace').strip()
+                                if not line or not line.startswith('data:'):
+                                    continue
+                                data_str = line[5:].strip()
+                                if data_str == '[DONE]':
+                                    break
+                                try:
+                                    chunk = json.loads(data_str)
+                                except json.JSONDecodeError:
+                                    continue
+    
+                                # 不再因为短时间无思考内容而判定失败，允许长时间等待（例如返回102处理中）
+                                elapsed = time.time() - stream_start_time
+                                if not thinking and elapsed > 10:
+                                    print(f'[等待] 任务 {task_id} 已等待 {elapsed:.0f}s 尚未收到思考内容，继续等待（可能服务端返回102处理中）...')
+    
+                                # chunk 日志
+                                choices_list = chunk.get('choices')
+                                if choices_list and len(choices_list) > 0:
+                                    delta_preview = choices_list[0].get('delta', {})
+                                    finish_reason_chunk = choices_list[0].get('finish_reason', '') or ''
+                                else:
+                                    delta_preview = {}
+                                    finish_reason_chunk = ''
+                                r_len = len(delta_preview.get('reasoning_content', '') or '')
+                                c_len = len(delta_preview.get('content', '') or '')
+                                if r_len or c_len:
+                                    print(f'[chunk] 任务 {task_id} reasoning+{r_len} content+{c_len}')
+    
+                                # 检测 flow2api 返回的失败信号
+                                content_preview = delta_preview.get('content', '') or ''
+                                reasoning_preview = delta_preview.get('reasoning_content', '') or ''
+    
+                                error_keywords = ['❌', '失败', 'error', 'Error', 'ERROR', '违规', '拒绝', 'denied']
+                                is_error_chunk = any(kw in content_preview or kw in reasoning_preview for kw in error_keywords)
+                                is_error_finish = finish_reason_chunk and finish_reason_chunk not in ('stop', '', '102')
+    
+                                if is_error_chunk or is_error_finish:
+                                    print(f'[失败] 任务 {task_id} flow2api 返回失败 chunk，finish={finish_reason_chunk}')
+                                    print(f'  content={content_preview[:200]}')
+                                    print(f'  reasoning={reasoning_preview[:200]}')
+                                    print(f'  完整 chunk: {json.dumps(chunk, ensure_ascii=False)[:1000]}')
+                                    err_msg = content_preview or reasoning_preview or f'finish_reason={finish_reason_chunk}'
+                                    with _tasks_lock:
+                                        if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                            t = _tasks[task_id]
+                                            t['status'] = 'failed'
+                                            t['error'] = err_msg[:500]
+                                            t['thinking'] = thinking
+                                            t['updated_at'] = time.time()
+                                            _save_task(t)
+                                    return
+    
+                                choices = chunk.get('choices', [])
+                                if not choices:
+                                    continue
+                                choice = choices[0]
+                                if not isinstance(choice, dict):
+                                    continue
+                                delta = choice.get('delta', {})
+                                if not isinstance(delta, dict):
+                                    continue
+    
+                                # 累积 reasoning_content
+                                reasoning = delta.get('reasoning_content', '') or ''
+                                if reasoning:
+                                    thinking += reasoning
+                                    # 首个 thinking chunk 到达 → 服务正常，取消定时器/升超时
+                                    if sock:
+                                        try:
+                                            sock.settimeout(CHUNK_READ_TIMEOUT)  # 使用更长的读取超时（见下面常量定义）
+                                        except Exception:
+                                            pass
+                                    else:
+                                        try:
+                                            _close_timer.cancel()
+                                        except Exception:
+                                            pass
+                                    # 带参考图时监测"打码验证"，15s 未出现则判定违规
+                                    if has_refs and not thinking_verified:
+                                        if thinking_start_time is None:
+                                            thinking_start_time = time.time()
+                                        if '打码验证' in thinking:
+                                            thinking_verified = True
+                                            print(f'[审核] 任务 {task_id} 思考出现"打码验证"，图片通过审核')
+                                        elif time.time() - thinking_start_time > 15:
+                                            print(f'[审核] 任务 {task_id} 思考 15s 未见"打码验证"，判定违规')
+                                            with _tasks_lock:
+                                                if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                                    t = _tasks[task_id]
+                                                    t['status'] = 'failed'
+                                                    t['error'] = '参考图片可能包含违规内容，无法上传'
+                                                    t['thinking'] = thinking
+                                                    t['updated_at'] = time.time()
+                                                    _save_task(t)
+                                            return
+    
+                                    # 实时保存 thinking 到任务
+                                    with _tasks_lock:
+                                        if task_id in _tasks:
+                                            t = _tasks[task_id]
+                                            t['thinking'] = thinking
+                                            t['updated_at'] = time.time()
+                                            _save_task(t)
+    
+                                # 累积 content
+                                content_delta = delta.get('content', '') or ''
+                                if content_delta:
+                                    final_content += content_delta
+    
+                                # 检查是否结束
+                                finish_reason = choice.get('finish_reason', '')
+                                if finish_reason == 'stop':
+                                    break
+                                if finish_reason in ('content_filter', 'length'):
+                                    print(f'[警告] 任务 {task_id} finish_reason={finish_reason}'
+                                          f' chunk: {json.dumps(chunk, ensure_ascii=False)[:500]}')
+    
+                        except socket.timeout:
                             elapsed = time.time() - stream_start_time
-                            if not thinking and elapsed > 10:
-                                print(f'[等待] 任务 {task_id} 已等待 {elapsed:.0f}s 尚未收到思考内容，继续等待（可能服务端返回102处理中）...')
-
-                            # chunk 日志
-                            choices_list = chunk.get('choices')
-                            if choices_list and len(choices_list) > 0:
-                                delta_preview = choices_list[0].get('delta', {})
-                                finish_reason_chunk = choices_list[0].get('finish_reason', '') or ''
-                            else:
-                                delta_preview = {}
-                                finish_reason_chunk = ''
-                            r_len = len(delta_preview.get('reasoning_content', '') or '')
-                            c_len = len(delta_preview.get('content', '') or '')
-                            if r_len or c_len:
-                                print(f'[chunk] 任务 {task_id} reasoning+{r_len} content+{c_len}')
-
-                            # 检测 flow2api 返回的失败信号
-                            content_preview = delta_preview.get('content', '') or ''
-                            reasoning_preview = delta_preview.get('reasoning_content', '') or ''
-
-                            error_keywords = ['❌', '失败', 'error', 'Error', 'ERROR', '违规', '拒绝', 'denied']
-                            is_error_chunk = any(kw in content_preview or kw in reasoning_preview for kw in error_keywords)
-                            is_error_finish = finish_reason_chunk and finish_reason_chunk not in ('stop', '', '102')
-
-                            if is_error_chunk or is_error_finish:
-                                print(f'[失败] 任务 {task_id} flow2api 返回失败 chunk，finish={finish_reason_chunk}')
-                                print(f'  content={content_preview[:200]}')
-                                print(f'  reasoning={reasoning_preview[:200]}')
-                                print(f'  完整 chunk: {json.dumps(chunk, ensure_ascii=False)[:1000]}')
-                                err_msg = content_preview or reasoning_preview or f'finish_reason={finish_reason_chunk}'
+                            print(f'[调试] 任务 {task_id} socket 读取超时，已耗时 {elapsed:.1f}s，thinking={bool(thinking)}')
+                            if not thinking:
+                                print(f'[宕机] 任务 {task_id} {elapsed:.0f}s 无任何响应，判定服务宕机')
                                 with _tasks_lock:
                                     if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
                                         t = _tasks[task_id]
                                         t['status'] = 'failed'
-                                        t['error'] = err_msg[:500]
+                                        t['error'] = 'SERVICE_DOWN:生图服务无响应，可能已宕机，请重启服务'
                                         t['thinking'] = thinking
                                         t['updated_at'] = time.time()
                                         _save_task(t)
                                 return
-
-                            choices = chunk.get('choices', [])
-                            if not choices:
-                                continue
-                            choice = choices[0]
-                            if not isinstance(choice, dict):
-                                continue
-                            delta = choice.get('delta', {})
-                            if not isinstance(delta, dict):
-                                continue
-
-                            # 累积 reasoning_content
-                            reasoning = delta.get('reasoning_content', '') or ''
-                            if reasoning:
-                                thinking += reasoning
-                                # 首个 thinking chunk 到达 → 服务正常，取消定时器/升超时
-                                if sock:
-                                    try:
-                                        sock.settimeout(CHUNK_READ_TIMEOUT)  # 使用更长的读取超时（见下面常量定义）
-                                    except Exception:
-                                        pass
-                                else:
-                                    try:
-                                        _close_timer.cancel()
-                                    except Exception:
-                                        pass
-                                # 带参考图时监测"打码验证"，15s 未出现则判定违规
-                                if has_refs and not thinking_verified:
-                                    if thinking_start_time is None:
-                                        thinking_start_time = time.time()
-                                    if '打码验证' in thinking:
-                                        thinking_verified = True
-                                        print(f'[审核] 任务 {task_id} 思考出现"打码验证"，图片通过审核')
-                                    elif time.time() - thinking_start_time > 15:
-                                        print(f'[审核] 任务 {task_id} 思考 15s 未见"打码验证"，判定违规')
-                                        with _tasks_lock:
-                                            if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
-                                                t = _tasks[task_id]
-                                                t['status'] = 'failed'
-                                                t['error'] = '参考图片可能包含违规内容，无法上传'
-                                                t['thinking'] = thinking
-                                                t['updated_at'] = time.time()
-                                                _save_task(t)
-                                        return
-
-                                # 实时保存 thinking 到任务
-                                with _tasks_lock:
-                                    if task_id in _tasks:
-                                        t = _tasks[task_id]
-                                        t['thinking'] = thinking
-                                        t['updated_at'] = time.time()
-                                        _save_task(t)
-
-                            # 累积 content
-                            content_delta = delta.get('content', '') or ''
-                            if content_delta:
-                                final_content += content_delta
-
-                            # 检查是否结束
-                            finish_reason = choice.get('finish_reason', '')
-                            if finish_reason == 'stop':
-                                break
-                            if finish_reason in ('content_filter', 'length'):
-                                print(f'[警告] 任务 {task_id} finish_reason={finish_reason}'
-                                      f' chunk: {json.dumps(chunk, ensure_ascii=False)[:500]}')
-
-                    except socket.timeout:
-                        elapsed = time.time() - stream_start_time
-                        print(f'[调试] 任务 {task_id} socket 读取超时，已耗时 {elapsed:.1f}s，thinking={bool(thinking)}')
-                        if not thinking:
-                            print(f'[宕机] 任务 {task_id} {elapsed:.0f}s 无任何响应，判定服务宕机')
-                            with _tasks_lock:
-                                if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
-                                    t = _tasks[task_id]
-                                    t['status'] = 'failed'
-                                    t['error'] = 'SERVICE_DOWN:生图服务无响应，可能已宕机，请重启服务'
-                                    t['thinking'] = thinking
-                                    t['updated_at'] = time.time()
-                                    _save_task(t)
-                            return
-                        raise  # 已有 thinking 后的超时，交给外层重试逻辑
-
-                # 温和排空连接，避免 RST 导致 flow2api 卡在"处理中"
-                try:
-                    resp.read(4096)
-                except Exception:
-                    pass
-
-                # 构建兼容 _store_image_from_response 的响应格式
-                resp_data = {
-                    'choices': [{
-                        'message': {
-                            'content': final_content,
-                            'reasoning_content': thinking
-                        }
-                    }]
-                }
-
+                            raise  # 已有 thinking 后的超时，交给外层重试逻辑
+    
+                    # 温和排空连接，避免 RST 导致 flow2api 卡在"处理中"
+                    try:
+                        resp.read(4096)
+                    except Exception:
+                        pass
+    
+                    # 构建兼容 _store_image_from_response 的响应格式
+                    resp_data = {
+                        'choices': [{
+                            'message': {
+                                'content': final_content,
+                                'reasoning_content': thinking
+                            }
+                        }]
+                    }
+    
                 image_url = _store_image_from_response(resp_data, base)
 
                 with _tasks_lock:
@@ -814,6 +863,25 @@ def _execute_task(task_id):
                                 t = _tasks[task_id]
                                 t['status'] = 'failed'
                                 t['error'] = f'请求过于频繁，请稍后重试 (HTTP 429): {err_body}'
+                                t['updated_at'] = time.time()
+                                _save_task(t)
+                        return
+                # 403 Forbidden: Cloudflare 等安全网关拦截（如 Error 1010: browser signature）
+                elif status_code == 403:
+                    if attempt < MAX_RETRIES:
+                        delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
+                        last_error = f'HTTP 403: {err_body}'
+                        print(f'[防护墙] 任务 {task_id} 遭遇 403 拦截（可能 Cloudflare/WAF），'
+                              f'{delay:.0f}s 后进行第 {attempt + 1}/{MAX_RETRIES} 次重试')
+                        time.sleep(delay)
+                        continue
+                    else:
+                        # 提示用户检查 API 地址和密钥
+                        with _tasks_lock:
+                            if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                t = _tasks[task_id]
+                                t['status'] = 'failed'
+                                t['error'] = f'请求被安全网关拒绝 (HTTP 403)，可能原因：IP 被封锁、API 地址需要验证或密钥无效\n详情: {err_body}'
                                 t['updated_at'] = time.time()
                                 _save_task(t)
                         return
@@ -998,6 +1066,7 @@ def create_task():
         'model': data.get('model', ''),
         'provider': data.get('provider', ''),
         'refs': data.get('refs', []),
+        'aspectRatio': data.get('aspectRatio', '1:1'),
         'image_url': '',
         'error': '',
         'thinking': '',

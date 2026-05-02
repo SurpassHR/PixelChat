@@ -53,6 +53,8 @@ function showDetail(entry) {
   const model = entry.model || '-';
   const provider = entry.provider || '-';
   const prompt = entry.prompt || '';
+  const requestUrl = entry.request_url || '';
+  const requestBody = entry.request_body || '';
 
   detailOverlay = document.createElement('div');
   detailOverlay.className = 'log-detail-overlay';
@@ -75,6 +77,18 @@ function showDetail(entry) {
           <span class="log-detail-label">提示词</span>
           <div class="log-detail-value">${escapeHtml(prompt)}</div>
         </div>
+        ${requestUrl ? `
+        <div class="log-detail-field">
+          <span class="log-detail-label">请求地址</span>
+          <div class="log-detail-value" style="font-family:'JetBrains Mono',monospace;font-size:12px;word-break:break-all">${escapeHtml(requestUrl)}</div>
+        </div>
+        ` : ''}
+        ${requestBody ? `
+        <div class="log-detail-field">
+          <span class="log-detail-label">请求体 (JSON)</span>
+          <pre class="log-detail-json">${escapeHtml(requestBody)}</pre>
+        </div>
+        ` : ''}
         ${isSuccess ? `
         <div class="log-detail-field">
           <span class="log-detail-label">状态</span>
@@ -115,6 +129,8 @@ function addLogEntry(task, type) {
     error: task.error || '',
     model: task.model || '',
     provider: task.provider || '',
+    request_url: task.request_url || '',
+    request_body: task.request_body || '',
     created_at: task.created_at || Math.floor(Date.now() / 1000)
   });
 
