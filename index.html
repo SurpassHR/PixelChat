@@ -76,17 +76,13 @@
 
     <div class="prompt-area" id="promptArea">
       <div class="attachments" id="attachments"></div>
-      <div class="monaco-expand" id="monacoExpand">
-        <div class="monaco-container" id="monacoContainer"></div>
-        <div class="monaco-hint">Esc 收起 · 支持多行编辑</div>
-      </div>
       <div class="prompt-input-row">
         <button class="attach-btn" id="attachBtn" title="添加参考图">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
             <polygon points="12,4 20,12 12,20 4,12"></polygon>
           </svg>
         </button>
-        <textarea id="promptInput" rows="1" placeholder="您希望创作什么内容？"></textarea>
+        <div id="promptMonacoEditor"></div>
         <button class="model-tag" id="modelTag" title="生成参数设置">
           <span class="model-tag-icon">✦</span>
           <span class="model-tag-name" id="modelTagName">加载中...</span>

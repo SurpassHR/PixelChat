@@ -110,24 +110,13 @@ function fitTextSize(el, maxSize = 12, minSize = 8) {
   }
 }
 
-// Module-scoped Monaco state (shared with initPromptArea)
+// Module-scoped Monaco editor instance (shared with initPromptArea)
 let _monacoEditor = null;
-let _monacoVisible = false;
 
 async function generate() {
   const { selectedModelId, selectedProvider, refImages, reusePrompt, reuseRef, batchSize, aspectRatio } = getState();
 
-  // Sync Monaco content before generating, then collapse
-  if (_monacoVisible && _monacoEditor) {
-    $('#promptInput').value = _monacoEditor.getValue();
-    // Collapse Monaco immediately (no animation for responsiveness)
-    const expand = $('#monacoExpand');
-    if (expand) { expand.style.display = 'none'; expand.classList.remove('collapsing'); }
-    $('#promptInput').style.opacity = '';
-    _monacoVisible = false;
-  }
-
-  const prompt = $('#promptInput').value.trim();
+  const prompt = _monacoEditor ? _monacoEditor.getValue().trim() : '';
 
   if (!selectedModelId) {
     setState({ statusText: '请先选择一个模型' });
@@ -201,8 +190,8 @@ async function generate() {
   await appendMessage({ role: 'user', prompt, refImages: turnRefs });
 
   // Clear input
-  if (!reusePrompt) {
-    $('#promptInput').value = '';
+  if (!reusePrompt && _monacoEditor) {
+    _monacoEditor.setValue('');
   }
   if (!reuseRef) {
     setState({ refImages: [] });
@@ -274,104 +263,9 @@ function renderResolutionButtons() {
 export function initPromptArea() {
   const popover = $('#settingsPopover');
   const modelTag = $('#modelTag');
-  const promptInput = $('#promptInput');
-  const monacoExpand = $('#monacoExpand');
-  const monacoContainer = $('#monacoContainer');
-
-  // --- Monaco editor management ---
-  function openMonaco() {
-    if (_monacoVisible) return;
-    _monacoVisible = true;
-    monacoExpand.style.display = 'flex';
-    monacoExpand.classList.remove('collapsing');
-
-    if (!_monacoEditor) {
-      _monacoEditor = monaco.editor.create(monacoContainer, {
-        value: promptInput.value,
-        language: 'markdown',
-        theme: 'darkroom',
-        fontSize: 13,
-        fontFamily: "'JetBrains Mono', 'IBM Plex Mono', monospace",
-        lineHeight: 22,
-        minimap: { enabled: false },
-        lineNumbers: 'off',
-        glyphMargin: false,
-        folding: false,
-        renderLineHighlight: 'line',
-        scrollBeyondLastLine: false,
-        wordWrap: 'on',
-        automaticLayout: true,
-        overviewRulerLanes: 0,
-        hideCursorInOverviewRuler: true,
-        overviewRulerBorder: false,
-        padding: { top: 12, bottom: 12 },
-        scrollbar: {
-          verticalScrollbarSize: 4,
-          horizontalScrollbarSize: 4,
-        },
-        suggest: { showWords: false, showSnippets: false },
-        quickSuggestions: false,
-        parameterHints: { enabled: false },
-      });
-    } else {
-      _monacoEditor.setValue(promptInput.value);
-      _monacoEditor.layout();
-    }
-
-    promptInput.style.opacity = '0';
-    _monacoEditor.focus();
-  }
-
-  function closeMonaco() {
-    if (!_monacoVisible) return;
-    _monacoVisible = false;
-
-    if (_monacoEditor) {
-      const newPrompt = _monacoEditor.getValue();
-      promptInput.value = newPrompt;
-      // 同步到 store
-      const currentPrompt = getState().promptDraft;
-      if (newPrompt !== currentPrompt) {
-        console.log('[closeMonaco] Monaco 关闭，同步提示词, 新内容长度:', newPrompt.length);
-        setState({ promptDraft: newPrompt });
-        saveCurrentSessionDraft();
-      }
-    }
-
-    monacoExpand.classList.add('collapsing');
-    const onAnimEnd = () => {
-      monacoExpand.style.display = 'none';
-      monacoExpand.classList.remove('collapsing');
-      monacoExpand.removeEventListener('animationend', onAnimEnd);
-    };
-    monacoExpand.addEventListener('animationend', onAnimEnd);
-    promptInput.style.opacity = '';
-  }
 
   // --- 生成操作 ---
   $('#sendBtn').addEventListener('click', generate);
-
-  // --- Prompt input events ---
-  promptInput.addEventListener('focus', () => {
-    openMonaco();
-  });
-
-  promptInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey && !_monacoVisible) {
-      e.preventDefault();
-      generate();
-    }
-  });
-
-  // Monaco keyboard: ESC to close
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && _monacoVisible) {
-      // Check if Monaco's own suggest widget is open
-      if (document.querySelector('.monaco-editor .suggest-widget.visible')) return;
-      e.preventDefault();
-      closeMonaco();
-    }
-  });
 
   // --- 初始同步 ---
   syncSettingsState();
@@ -418,10 +312,6 @@ export function initPromptArea() {
   document.addEventListener('click', e => {
     if (!e.target.closest('.settings-popover') && !e.target.closest('.model-tag')) {
       closePopover();
-    }
-    // 点击 Monaco 展开区域外关闭 Monaco
-    if (_monacoVisible && !e.target.closest('.monaco-expand') && e.target !== promptInput) {
-      closeMonaco();
     }
   });
 
@@ -823,28 +713,93 @@ export function initPromptArea() {
     renderAttachments();
   });
   
-  // 提示词草稿恢复与同步
-  const { promptDraft } = getState();
-  console.log('[initPromptArea] 初始化时 promptDraft:', promptDraft);
-  if (promptDraft) {
-    $('#promptInput').value = promptDraft;
-    if (_monacoEditor) _monacoEditor.setValue(promptDraft);
-    console.log('[initPromptArea] 已恢复提示词:', promptDraft.substring(0, 50));
-  }
-  
-  // 监听提示词输入变化，同步到 store.promptDraft 并保存草稿
-  const syncPromptDraft = () => {
-    const newPrompt = $('#promptInput').value;
-    const currentPrompt = getState().promptDraft;
-    if (newPrompt !== currentPrompt) {
-      console.log('[syncPromptDraft] 提示词变化，保存中... 新内容长度:', newPrompt.length);
-      setState({ promptDraft: newPrompt });
-      saveCurrentSessionDraft();
+  // --- 内联 Monaco 编辑器初始化 ---
+  function initInlineMonacoEditor() {
+    const container = $('#promptMonacoEditor');
+    if (!container) return;
+
+    const draft = getState().promptDraft || '';
+    console.log('[initPromptArea] 初始化时 promptDraft:', draft);
+
+    _monacoEditor = monaco.editor.create(container, {
+      value: draft,
+      language: 'markdown',
+      theme: 'darkroom',
+      fontSize: 13,
+      fontFamily: "'JetBrains Mono', 'IBM Plex Mono', monospace",
+      lineHeight: 22,
+      minimap: { enabled: false },
+      lineNumbers: 'off',
+      glyphMargin: false,
+      folding: false,
+      renderLineHighlight: 'line',
+      scrollBeyondLastLine: false,
+      wordWrap: 'on',
+      automaticLayout: false,
+      overviewRulerLanes: 0,
+      hideCursorInOverviewRuler: true,
+      overviewRulerBorder: false,
+      padding: { top: 4, bottom: 4 },
+      scrollbar: {
+        verticalScrollbarSize: 4,
+        horizontalScrollbarSize: 4,
+      },
+      suggest: { showWords: false, showSnippets: false },
+      quickSuggestions: false,
+      parameterHints: { enabled: false },
+    });
+
+    if (draft) {
+      console.log('[initPromptArea] 已恢复提示词:', draft.substring(0, 50));
     }
-  };
-  $('#promptInput').addEventListener('input', syncPromptDraft);
-  
-  // 在 closeMonaco 时同步内容
-  const originalCloseMonaco = closeMonaco;
-  window._closeMonaco = originalCloseMonaco;
+
+    updateInlineEditorHeight();
+
+    // 内容变化：自动高度 + 草稿同步
+    _monacoEditor.onDidChangeModelContent(() => {
+      updateInlineEditorHeight();
+      const newPrompt = _monacoEditor.getValue();
+      const currentPrompt = getState().promptDraft;
+      if (newPrompt !== currentPrompt) {
+        setState({ promptDraft: newPrompt });
+        saveCurrentSessionDraft();
+      }
+    });
+
+    // Enter 提交，Shift+Enter 换行
+    _monacoEditor.addAction({
+      id: 'submit-prompt',
+      label: '提交',
+      keybindings: [monaco.KeyCode.Enter],
+      precondition: '!suggestWidgetVisible',
+      run: generate,
+    });
+
+    // Escape 失焦
+    _monacoEditor.addAction({
+      id: 'blur-editor',
+      label: '失焦',
+      keybindings: [monaco.KeyCode.Escape],
+      precondition: '!suggestWidgetVisible',
+      run: () => { document.activeElement.blur(); },
+    });
+  }
+
+  function updateInlineEditorHeight() {
+    if (!_monacoEditor) return;
+    const model = _monacoEditor.getModel();
+    if (!model) return;
+    const lineCount = model.getLineCount();
+    const lineHeight = 22;
+    const padTop = 4;
+    const padBottom = 4;
+    const contentHeight = lineCount * lineHeight + padTop + padBottom;
+    const maxHeight = window.innerHeight * 0.4;
+    const height = Math.min(contentHeight, maxHeight);
+    const container = $('#promptMonacoEditor');
+    container.style.height = height + 'px';
+    _monacoEditor.layout();
+  }
+
+  initInlineMonacoEditor();
 }

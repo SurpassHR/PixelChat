@@ -1512,15 +1512,15 @@ body {
 /* Prompt input bar - glass capsule */
 .prompt-input-row {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 6px;
   background: rgba(26, 24, 21, 0.85);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(232, 184, 109, 0.12);
-  border-radius: 40px;
+  border-radius: 20px;
   padding: 4px 4px 4px 8px;
-  height: 52px;
+  min-height: 52px;
   transition: border-color 0.3s, box-shadow 0.6s ease-out;
 }
 
@@ -1556,95 +1556,10 @@ body {
   border-color: rgba(232, 184, 109, 0.2);
 }
 
-/* Textarea inside capsule - monospace for "writing spells" */
-.prompt-input-row textarea {
+/* Inline Monaco editor */
+#promptMonacoEditor {
   flex: 1;
   min-width: 0;
-  background: transparent;
-  border: none;
-  color: var(--text);
-  padding: 4px 4px;
-  font-size: 13px;
-  font-family: 'JetBrains Mono', 'IBM Plex Mono', 'SF Mono', 'Fira Code', monospace;
-  resize: none;
-  outline: none;
-  line-height: 1.5;
-  height: 24px;
-  align-self: center;
-  letter-spacing: -0.01em;
-  overflow: hidden;
-}
-
-.prompt-input-row textarea::placeholder {
-  color: rgba(232, 184, 109, 0.25);
-  font-style: italic;
-}
-
-.prompt-input-row textarea::-webkit-scrollbar {
-  display: none;
-}
-
-/* Monaco expansion panel */
-.monaco-expand {
-  display: none;
-  flex-direction: column;
-  border-radius: 20px;
-  overflow: hidden;
-  border: 1px solid rgba(232, 184, 109, 0.2);
-  background: rgba(8, 8, 8, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(232, 184, 109, 0.06);
-  animation: monacoExpand 0.2s ease-out;
-}
-
-.monaco-expand.collapsing {
-  animation: monacoCollapse 0.15s ease-in forwards;
-}
-
-.monaco-container {
-  height: 80vh;
-  max-height: 80vh;
-  width: 100%;
-}
-
-.monaco-hint {
-  padding: 6px 16px;
-  font-size: 10px;
-  color: var(--amber-dim);
-  text-align: right;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  opacity: 0.5;
-  border-top: 1px solid rgba(232, 184, 109, 0.08);
-}
-
-@keyframes monacoExpand {
-  0% {
-    opacity: 0;
-    max-height: 0;
-    transform: translateY(8px);
-  }
-
-  100% {
-    opacity: 1;
-    max-height: 80vh;
-    transform: translateY(0);
-  }
-}
-
-@keyframes monacoCollapse {
-  0% {
-    opacity: 1;
-    max-height: 80vh;
-    transform: translateY(0);
-  }
-
-  100% {
-    opacity: 0;
-    max-height: 0;
-    transform: translateY(8px);
-  }
 }
 
 /* Model tag - amber toned */
