@@ -1560,6 +1560,9 @@ body {
 #promptMonacoEditor {
   flex: 1;
   min-width: 0;
+  height: 30px;
+  overflow: hidden;
+  transition: height 0.2s ease-out;
 }
 
 /* Model tag - amber toned */

@@ -112,6 +112,7 @@ function fitTextSize(el, maxSize = 12, minSize = 8) {
 
 // Module-scoped Monaco editor instance (shared with initPromptArea)
 let _monacoEditor = null;
+let _monacoExpanded = false;
 
 async function generate() {
   const { selectedModelId, selectedProvider, refImages, reusePrompt, reuseRef, batchSize, aspectRatio } = getState();
@@ -753,11 +754,22 @@ export function initPromptArea() {
       console.log('[initPromptArea] 已恢复提示词:', draft.substring(0, 50));
     }
 
-    updateInlineEditorHeight();
+    updateInlineEditorHeight(false);
 
-    // 内容变化：自动高度 + 草稿同步
+    // 聚焦展开、失焦收起
+    _monacoEditor.onDidFocusEditorWidget(() => {
+      updateInlineEditorHeight(true);
+    });
+
+    _monacoEditor.onDidBlurEditorWidget(() => {
+      updateInlineEditorHeight(false);
+    });
+
+    // 内容变化：仅展开状态下自动调整高度 + 草稿同步
     _monacoEditor.onDidChangeModelContent(() => {
-      updateInlineEditorHeight();
+      if (_monacoExpanded) {
+        updateInlineEditorHeight(true);
+      }
       const newPrompt = _monacoEditor.getValue();
       const currentPrompt = getState().promptDraft;
       if (newPrompt !== currentPrompt) {
@@ -765,38 +777,22 @@ export function initPromptArea() {
         saveCurrentSessionDraft();
       }
     });
-
-    // Enter 提交，Shift+Enter 换行
-    _monacoEditor.addAction({
-      id: 'submit-prompt',
-      label: '提交',
-      keybindings: [monaco.KeyCode.Enter],
-      precondition: '!suggestWidgetVisible',
-      run: generate,
-    });
-
-    // Escape 失焦
-    _monacoEditor.addAction({
-      id: 'blur-editor',
-      label: '失焦',
-      keybindings: [monaco.KeyCode.Escape],
-      precondition: '!suggestWidgetVisible',
-      run: () => { document.activeElement.blur(); },
-    });
   }
 
-  function updateInlineEditorHeight() {
+  function updateInlineEditorHeight(expanded) {
     if (!_monacoEditor) return;
-    const model = _monacoEditor.getModel();
-    if (!model) return;
-    const lineCount = model.getLineCount();
-    const lineHeight = 22;
-    const padTop = 4;
-    const padBottom = 4;
-    const contentHeight = lineCount * lineHeight + padTop + padBottom;
-    const maxHeight = window.innerHeight * 0.4;
-    const height = Math.min(contentHeight, maxHeight);
+    _monacoExpanded = !!expanded;
     const container = $('#promptMonacoEditor');
+    let height;
+    if (expanded) {
+      const model = _monacoEditor.getModel();
+      const lineCount = model ? model.getLineCount() : 1;
+      const contentHeight = lineCount * 22 + 8;
+      const maxHeight = window.innerHeight * 0.4;
+      height = Math.min(contentHeight, maxHeight);
+    } else {
+      height = 30;
+    }
     container.style.height = height + 'px';
     _monacoEditor.layout();
   }
