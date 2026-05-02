@@ -279,6 +279,14 @@ def serve_image(image_path):
     response.headers.set('X-Content-Type-Options', 'nosniff')
     return response
 
+def build_api_url(base, path):
+    clean_base = (base or '').rstrip('/')
+    clean_path = path if path.startswith('/') else '/' + path
+    if clean_base.endswith('/v1') and clean_path.startswith('/v1/'):
+        return clean_base + clean_path[3:]
+    return clean_base + clean_path
+
+
 # ============================================================
 # Task Queue
 # ============================================================
@@ -544,8 +552,9 @@ def _execute_task(task_id):
                     'Connection': 'close'
                 }
 
+                request_url = build_api_url(base, '/v1/chat/completions')
                 req = urllib.request.Request(
-                    f'{base}/v1/chat/completions',
+                    request_url,
                     data=encoded,
                     headers=headers,
                     method='POST'
@@ -556,7 +565,7 @@ def _execute_task(task_id):
                 thinking_start_time = None
                 thinking_verified = False  # 思考块中是否出现了"打码验证"
 
-                print(f'[任务] {task_id} 发送请求: {base}/v1/chat/completions '
+                print(f'[任务] {task_id} 发送请求: {request_url} '
                       f'(model={task["model"]}, attempt={attempt + 1}/{1 + MAX_RETRIES})')
 
                 thinking = ''

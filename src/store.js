@@ -32,6 +32,13 @@ const RATIO_SLUG = { '1:1':'square', '3:4':'three-four', '4:3':'four-three', '9:
 
 export const MODEL_FAMILIES = [
   {
+    id: 'gpt-image', label: 'GPT Image',
+    ratios: { '1:1':['1K'], '3:4':['1K'], '4:3':['1K'], '9:16':['1K'], '16:9':['1K'] },
+    buildModelId() {
+      return 'gpt-image-2';
+    }
+  },
+  {
     id: 'gemini-3.0-pro-image', label: 'Gemini 3.0 Pro',
     ratios: { '1:1':['1K','2K','4K'], '3:4':['1K','2K','4K'], '4:3':['1K','2K','4K'], '9:16':['1K','2K','4K'], '16:9':['1K','2K','4K'] },
     buildModelId(ratio, res) {

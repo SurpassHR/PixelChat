@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getState, addProvider, updateProviderModels, batchToggleModelsEnabled } from '../store.js';
+import { fetchModels } from '../api.js';
+import { getState, addProvider, updateProviderModels, batchToggleModelsEnabled, getModelId } from '../store.js';
 
 // 模拟 fetch 和 localStorage
 global.fetch = vi.fn();
@@ -84,5 +85,32 @@ describe('模型批量全选/反选', () => {
     expect(() => batchToggleModelsEnabled('NonExistent', true)).not.toThrow();
     const state = getState();
     expect(state.providers['NonExistent']).toBeUndefined();
+  });
+});
+
+describe('模型系列映射', () => {
+  it('GPT Image 系列应该映射到 gpt-image-2', () => {
+    expect(getModelId('gpt-image', '1:1', '1K')).toBe('gpt-image-2');
+  });
+
+  it('Gemini 图片模型映射应该保持不变', () => {
+    expect(getModelId('gemini-3.0-pro-image', '1:1', '1K')).toBe('gemini-3.0-pro-image-square');
+  });
+});
+
+
+describe('API URL 规范化', () => {
+  it('模型列表请求不应该重复拼接 /v1', async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ id: 'gpt-image-2' }] }),
+    });
+
+    await fetchModels({ base: 'https://image.thkss.top/v1', key: 'sk-test' });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'https://image.thkss.top/v1/models',
+      { headers: { Authorization: 'Bearer sk-test' } }
+    );
   });
 });

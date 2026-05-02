@@ -1,5 +1,14 @@
 import { getState } from './store.js';
 
+export function buildApiUrl(base, path) {
+  const cleanBase = (base || '').replace(/\/+$/, '');
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  if (cleanBase.endsWith('/v1') && cleanPath.startsWith('/v1/')) {
+    return cleanBase + cleanPath.slice(3);
+  }
+  return cleanBase + cleanPath;
+}
+
 export function getApiConfig() {
   const { selectedProvider, providers } = getState();
   if (selectedProvider && providers[selectedProvider]) {
@@ -12,7 +21,7 @@ export function getApiConfig() {
 }
 
 export async function fetchModels({ base, key }) {
-  const res = await fetch(`${base}/v1/models`, {
+  const res = await fetch(buildApiUrl(base, '/v1/models'), {
     headers: { Authorization: `Bearer ${key}` }
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -44,7 +53,7 @@ export async function generateImage({ base, key, model, prompt, refImages, signa
     messages: [{ role: 'user', content }]
   };
 
-  const res = await fetch(`${base}/v1/chat/completions`, {
+  const res = await fetch(buildApiUrl(base, '/v1/chat/completions'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
