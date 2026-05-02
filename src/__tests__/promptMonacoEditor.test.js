@@ -44,8 +44,8 @@ describe('内联 Monaco 编辑器 — CSS', () => {
     expect(rawCss).toMatch(/\.prompt-input-row\s*\{[^}]*min-height\s*:\s*52px/s);
   });
 
-  it('#promptMonacoEditor 设置 height: 30px（初始 1 行高度）', () => {
-    expect(rawCss).toMatch(/#promptMonacoEditor\s*\{[^}]*height\s*:\s*30px/s);
+  it('#promptMonacoEditor CSS 中不设置静态 height（由 JS 管理）', () => {
+    expect(rawCss).not.toMatch(/#promptMonacoEditor\s*\{[^}]*height\s*:/s);
   });
 
   it('#promptMonacoEditor 设置 overflow: hidden（收起时不显示滚动条）', () => {
@@ -110,5 +110,9 @@ describe('内联 Monaco 编辑器 — JS 展开/收起逻辑', () => {
 
   it('移除 Escape 失焦 addAction', () => {
     expect(rawJs).not.toMatch(/id\s*:\s*'blur-editor'/);
+  });
+
+  it('layout() 传入显式宽高尺寸', () => {
+    expect(rawJs).toMatch(/layout\s*\(\s*\{\s*width\s*:\s*container\.clientWidth\s*,\s*height\s*:\s*height\s*\}\s*\)/);
   });
 });

@@ -33,7 +33,7 @@ monaco.editor.defineTheme('darkroom', {
     { token: 'type', foreground: 'c9953e' },
   ],
   colors: {
-    'editor.background': '#080808',
+    'editor.background': '#1a1815',
     'editor.foreground': '#e0e0e0',
     'editor.lineHighlightBackground': '#1a1815',
     'editor.selectionBackground': '#3d2e0f',
@@ -794,7 +794,7 @@ export function initPromptArea() {
       height = 30;
     }
     container.style.height = height + 'px';
-    _monacoEditor.layout();
+    _monacoEditor.layout({ width: container.clientWidth, height: height });
   }
 
   initInlineMonacoEditor();
