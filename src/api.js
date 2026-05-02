@@ -53,18 +53,34 @@ export async function generateImage({ base, key, model, prompt, refImages, signa
     messages: [{ role: 'user', content }]
   };
 
-  const res = await fetch(buildApiUrl(base, '/v1/chat/completions'), {
+  const url = buildApiUrl(base, '/v1/chat/completions');
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${key}`
+  };
+  const requestBody = JSON.stringify(body);
+
+  console.log('[API Request]', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${key}`
-    },
-    body: JSON.stringify(body),
+    url,
+    headers: { ...headers, Authorization: `Bearer ${key ? '***' : '(empty)'}` }, // 隐藏完整 key 避免泄露，但显示是否存在
+    body: body
+  });
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: requestBody,
     signal
   });
 
   if (!res.ok) {
     const errText = await res.text();
+    console.error('[API Error Response]', {
+      status: res.status,
+      statusText: res.statusText,
+      body: errText
+    });
     throw new Error(`HTTP ${res.status}: ${errText}`);
   }
 

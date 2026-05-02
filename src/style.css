@@ -344,6 +344,7 @@ body {
 #taskLogSection {
   max-height: 25%;
 }
+
 .clear-log-btn {
   font-size: 11px;
   padding: 2px 8px;
@@ -354,6 +355,7 @@ body {
   cursor: pointer;
   transition: border-color 0.2s, color 0.2s;
 }
+
 .clear-log-btn:hover {
   border-color: var(--danger);
   color: var(--danger);
@@ -371,12 +373,15 @@ body {
   transition: border-color 0.2s;
   cursor: pointer;
 }
+
 .log-item.log-error:hover {
   border-color: var(--danger);
 }
+
 .log-item.log-success:hover {
   border-color: var(--success);
 }
+
 .log-status {
   flex-shrink: 0;
   width: 16px;
@@ -384,22 +389,27 @@ body {
   font-size: 14px;
   line-height: 1.4;
 }
+
 .log-error .log-status {
   color: var(--danger);
 }
+
 .log-success .log-status {
   color: var(--success);
 }
+
 .log-body {
   flex: 1;
   min-width: 0;
 }
+
 .log-prompt {
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .log-meta {
   color: var(--text2);
   font-size: 11px;
@@ -416,6 +426,7 @@ body {
   align-items: center;
   justify-content: center;
 }
+
 .log-detail-content {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -426,6 +437,7 @@ body {
   display: flex;
   flex-direction: column;
 }
+
 .log-detail-header {
   display: flex;
   align-items: center;
@@ -433,10 +445,12 @@ body {
   padding: 14px 18px;
   border-bottom: 1px solid var(--border);
 }
+
 .log-detail-header h3 {
   font-size: 15px;
   font-weight: 600;
 }
+
 .log-detail-body {
   padding: 16px 20px;
   overflow-y: auto;
@@ -444,11 +458,13 @@ body {
   flex-direction: column;
   gap: 12px;
 }
+
 .log-detail-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
+
 .log-detail-label {
   font-size: 11px;
   color: var(--text2);
@@ -456,6 +472,7 @@ body {
   letter-spacing: 0.5px;
   font-weight: 600;
 }
+
 .log-detail-value {
   font-size: 13px;
   color: var(--text);
@@ -467,10 +484,12 @@ body {
   max-height: 200px;
   overflow-y: auto;
 }
+
 .log-detail-error {
   color: var(--danger);
   border: 1px solid rgba(242, 139, 130, 0.2);
 }
+
 .log-detail-success {
   color: var(--success);
   border: 1px solid rgba(52, 168, 83, 0.2);
@@ -1099,6 +1118,126 @@ body {
   position: relative;
 }
 
+/* Model select dropdown in simple mode - 彻底改造原生下拉框 */
+.model-select-wrapper {
+  margin-top: 8px;
+  position: relative;
+}
+
+.model-select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  background: rgba(18, 16, 14, 0.92) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border: 1px solid rgba(232, 184, 109, 0.25);
+  border-radius: 28px !important;
+  padding: 10px 40px 10px 18px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23e8b86d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  background-size: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  text-align: center;
+}
+
+/* 自定义模型下拉触发器样式，替代原生 select */
+.custom-model-trigger {
+  width: 100%;
+  background: rgba(18, 16, 14, 0.92) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border: 1px solid rgba(232, 184, 109, 0.25);
+  border-radius: 28px;
+  padding: 10px 40px 10px 18px;
+  color: var(--text);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  text-align: left;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.custom-model-trigger .trigger-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.custom-model-trigger .trigger-arrow {
+  flex-shrink: 0;
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--amber);
+}
+
+.custom-model-trigger:hover {
+  border-color: rgba(232, 184, 109, 0.45);
+  background: rgba(18, 16, 14, 0.96);
+  transform: translateY(-1px);
+}
+
+.custom-model-trigger:active {
+  transform: scale(0.98);
+}
+
+.model-select:hover {
+  border-color: rgba(232, 184, 109, 0.45);
+  background: rgba(18, 16, 14, 0.96);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transform: translateY(-1px);
+}
+
+.model-select:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(232, 184, 109, 0.15), 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: rgba(18, 16, 14, 0.98);
+}
+
+/* 原生下拉选项样式 - 增强视觉，居中文本，移除默认内边距差异 */
+.model-select option {
+  background: #1f1c18;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  padding: 10px;
+  border: none;
+  transition: background 0.15s;
+  text-align: center;
+}
+
+.model-select option:hover,
+.model-select option:focus,
+.model-select option:checked {
+  background: linear-gradient(135deg, rgba(232, 184, 109, 0.15), rgba(139, 105, 20, 0.1));
+  color: var(--accent);
+}
+
+/* 针对不同浏览器的下拉菜单样式优化 */
+.model-select::-ms-expand {
+  display: none;
+}
+
+/* 下拉框打开时的微动画 */
+.model-select:active {
+  transform: scale(0.98);
+}
+
 .gen-shimmer {
   position: absolute;
   inset: 0;
@@ -1237,8 +1376,15 @@ body {
 }
 
 @keyframes thinkingBlink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
 }
 
 .gen-cancel {
@@ -1276,6 +1422,7 @@ body {
   pointer-events: none;
   z-index: 10;
 }
+
 .canvas-item.generating:hover .gen-cancel {
   opacity: 1;
 }
@@ -1457,6 +1604,7 @@ body {
     max-height: 0;
     transform: translateY(8px);
   }
+
   100% {
     opacity: 1;
     max-height: 80vh;
@@ -1470,6 +1618,7 @@ body {
     max-height: 80vh;
     transform: translateY(0);
   }
+
   100% {
     opacity: 0;
     max-height: 0;
@@ -1588,7 +1737,7 @@ body {
   display: none;
   flex-direction: column;
   gap: 16px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .settings-popover::before {
@@ -1972,25 +2121,46 @@ body {
   position: relative;
 }
 
-/* Model Dropdown */
+/* Model Dropdown - 重新设计，增强视觉效果，向上展开 */
 .model-dropdown {
   position: absolute;
-  top: 100%;
+  bottom: 100%;
   left: 0;
-  right: 0;
-  margin-top: 4px;
-  width: 300px;
-  max-height: 400px;
-  background: rgba(26, 24, 21, 0.96);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(232, 184, 109, 0.15);
-  border-radius: 14px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  margin-bottom: 8px;
+  width: 100%;
+  max-height: 420px;
+  background: rgba(18, 16, 14, 0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(232, 184, 109, 0.25);
+  border-bottom: 1px solid rgba(232, 184, 109, 0.35);
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(232, 184, 109, 0.1) inset, 0 0 20px rgba(232, 184, 109, 0.08);
   z-index: 200;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: dropdownGlow 0.25s ease-out;
+  transform-origin: bottom center;
+}
+
+/* 确保自定义下拉框容器相对定位，用于正确定位下拉面板 */
+.custom-model-selector {
+  position: relative;
+}
+
+@keyframes dropdownGlow {
+  from {
+    opacity: 0;
+    transform: scaleY(0.96) translateY(4px);
+    filter: blur(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+    filter: blur(0);
+  }
 }
 
 .model-dropdown-search {
@@ -2000,18 +2170,20 @@ body {
 
 .model-dropdown-search input {
   width: 100%;
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 7px 10px;
+  background: rgba(26, 24, 21, 0.7);
+  border: 1px solid rgba(232, 184, 109, 0.2);
+  border-radius: 40px;
+  padding: 8px 14px;
   font-size: 12px;
   color: var(--text);
   outline: none;
-  font-family: inherit;
+  font-family: 'JetBrains Mono', monospace;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .model-dropdown-search input:focus {
-  border-color: var(--amber-dim);
+  border-color: var(--amber);
+  box-shadow: 0 0 0 2px rgba(232, 184, 109, 0.2);
 }
 
 .model-dropdown-search input::placeholder {
@@ -2030,45 +2202,46 @@ body {
 .model-dropdown-group-label {
   font-size: 10px;
   font-weight: 600;
-  color: var(--text2);
+  color: var(--amber);
   text-transform: uppercase;
-  letter-spacing: 0.8px;
-  padding: 8px 8px 4px;
+  letter-spacing: 1.5px;
+  padding: 12px 12px 4px;
+  opacity: 0.8;
 }
 
 .model-dropdown-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
-  border-radius: 6px;
+  gap: 10px;
+  margin: 2px 6px;
+  padding: 8px 12px;
+  border-radius: 12px;
   cursor: pointer;
   font-size: 12px;
   color: var(--text);
-  transition: background 0.1s;
+  transition: all 0.2s cubic-bezier(0.2, 0.9, 0.4, 1.1);
   border: 1px solid transparent;
 }
 
+
 .model-dropdown-item:hover,
 .model-dropdown-item.highlighted {
-  background: rgba(232, 184, 109, 0.08);
-  border-color: rgba(232, 184, 109, 0.25);
+  background: rgba(232, 184, 109, 0.12);
+  border-color: rgba(232, 184, 109, 0.4);
+  transform: translateX(4px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-.model-dropdown-item .md-check {
-  width: 16px;
-  font-size: 12px;
-  color: var(--amber);
-  flex-shrink: 0;
-  text-align: center;
-}
+
 
 .model-dropdown-item .md-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: "SF Mono", "Fira Code", monospace;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 12px;
+  letter-spacing: -0.01em;
 }
 
 .model-dropdown-item .md-owner {
@@ -2085,27 +2258,32 @@ body {
 }
 
 .model-dropdown-footer {
-  padding: 6px 8px;
-  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+  border-top: 1px solid rgba(232, 184, 109, 0.12);
   flex-shrink: 0;
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .model-dropdown-refresh {
   width: 100%;
-  padding: 6px 0;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
+  padding: 8px 0;
+  border-radius: 40px;
+  border: 1px solid rgba(232, 184, 109, 0.2);
+  background: rgba(26, 24, 21, 0.6);
   color: var(--text2);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
   font-family: inherit;
-  transition: color 0.15s, background 0.15s;
+  transition: all 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .model-dropdown-refresh:hover {
   color: var(--amber);
-  background: rgba(232, 184, 109, 0.08);
+  background: rgba(232, 184, 109, 0.15);
+  border-color: rgba(232, 184, 109, 0.4);
+  transform: translateY(-1px);
 }
 
 
@@ -2115,16 +2293,20 @@ body {
   0% {
     box-shadow: 0 0 0px rgba(232, 184, 109, 0);
   }
+
   100% {
     box-shadow: 0 0 20px rgba(232, 184, 109, 0.08);
   }
 }
 
 @keyframes breathe {
-  0%, 100% {
+
+  0%,
+  100% {
     border-color: rgba(232, 184, 109, 0.12);
     box-shadow: 0 0 8px rgba(232, 184, 109, 0.03);
   }
+
   50% {
     border-color: rgba(232, 184, 109, 0.35);
     box-shadow: 0 0 18px rgba(232, 184, 109, 0.1);
@@ -2136,14 +2318,17 @@ body {
     transform: scale(1);
     box-shadow: 0 0 0px rgba(232, 184, 109, 0);
   }
+
   40% {
     transform: scale(0.8);
     box-shadow: 0 0 8px rgba(232, 184, 109, 0.2);
   }
+
   70% {
     transform: scale(1.08);
     box-shadow: 0 0 24px rgba(232, 184, 109, 0.35);
   }
+
   100% {
     transform: scale(1);
     box-shadow: 0 0 12px rgba(232, 184, 109, 0.15);
@@ -2156,6 +2341,7 @@ body {
     filter: blur(8px);
     transform: translateY(8px);
   }
+
   100% {
     opacity: 1;
     filter: blur(0);
@@ -2169,6 +2355,7 @@ body {
     filter: blur(0);
     transform: translateY(0);
   }
+
   100% {
     opacity: 0;
     filter: blur(6px);
@@ -2177,9 +2364,12 @@ body {
 }
 
 @keyframes microBlink {
-  0%, 100% {
+
+  0%,
+  100% {
     opacity: 0.3;
   }
+
   50% {
     opacity: 1;
   }

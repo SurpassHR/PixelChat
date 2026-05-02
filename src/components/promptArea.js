@@ -201,12 +201,21 @@ async function generate() {
 }
 
 function syncSettingsState() {
-  const { batchSize, reusePrompt, reuseRef, aspectRatio, selectedFamilyId, selectedResolution } = getState();
+  const { batchSize, reusePrompt, reuseRef, aspectRatio, selectedFamilyId, selectedResolution, simpleMode, selectedModelId, models } = getState();
 
-  // 胶囊栏中的模型标签 — 显示系列简称
-  const family = selectedFamilyId ? MODEL_FAMILIES.find(f => f.id === selectedFamilyId) : null;
+  // 胶囊栏中的模型标签 — 根据简易模式决定显示内容
+  let modelDisplayName = '';
+  if (simpleMode && selectedModelId) {
+    // 简易模式：显示选中的模型 ID
+    modelDisplayName = selectedModelId;
+  } else if (selectedFamilyId) {
+    const family = MODEL_FAMILIES.find(f => f.id === selectedFamilyId);
+    modelDisplayName = family ? family.label : selectedFamilyId;
+  } else {
+    modelDisplayName = '未选择';
+  }
   const tagName = $('#modelTagName');
-  if (tagName) tagName.textContent = family ? family.label : (selectedFamilyId || '未选择');
+  if (tagName) tagName.textContent = modelDisplayName;
   const tagMult = $('#modelTagMult');
   if (tagMult) tagMult.textContent = '×' + batchSize;
   const tagRatio = $('#modelTagRatio');
@@ -214,7 +223,7 @@ function syncSettingsState() {
 
   // 弹出面板中的模型名（旧元素兼容）
   const popoverName = $('#popoverModelName');
-  if (popoverName) popoverName.textContent = family ? family.label : '未选择';
+  if (popoverName) popoverName.textContent = simpleMode && selectedModelId ? selectedModelId : (selectedFamilyId ? (MODEL_FAMILIES.find(f => f.id === selectedFamilyId)?.label || selectedFamilyId) : '未选择');
 
   // 比例按钮
   $$('.ratio-btn').forEach(btn => {
@@ -239,6 +248,9 @@ function syncSettingsState() {
   if (promptCb) promptCb.checked = reusePrompt;
   const refCb = $('#popoverReuseRef');
   if (refCb) refCb.checked = reuseRef;
+
+  // 根据提供商模板更新UI（比例/分辨率行显示与否）
+  updatePopoverByProvider();
 }
 
 // 根据当前 family + ratio 渲染分辨率按钮状态
@@ -259,6 +271,61 @@ function renderResolutionButtons() {
       btn.style.display = '';
     }
   });
+}
+
+// 提供商UI模板映射
+const PROVIDER_UI_TEMPLATES = {
+  // Google Gemini: 显示完整面板（比例/分辨率/模型系列）
+  google: 'full',
+  // OpenAI GPT: 仅显示模型选择框
+  openai: 'simple',
+};
+
+// 获取当前提供商的UI模板类型
+function getProviderTemplate(providerName) {
+  if (!providerName) return 'full'; // 默认显示完整面板
+  const lowerName = providerName.toLowerCase();
+  if (lowerName.includes('gemini')) return PROVIDER_UI_TEMPLATES.google;
+  if (lowerName.includes('gpt') || lowerName.includes('openai')) return PROVIDER_UI_TEMPLATES.openai;
+  // 可以根据需要增加更多映射规则
+  return 'full';
+}
+
+// 根据简易模式开关更新弹窗UI显示
+function updatePopoverByProvider() {
+  const { simpleMode } = getState();
+  
+  console.log('[updatePopoverByProvider] 简易模式状态:', simpleMode);
+
+  // 获取需要控制显示/隐藏的元素
+  const ratioGrid = document.querySelector('.ratio-grid');
+  const ratioSection = ratioGrid ? ratioGrid.closest('.popover-section') : null;
+  const resolutionRow = $('#resolutionRow');
+  const familyRow = $('#familyRow');
+  const modelSelectWrapper = $('#modelSelectWrapper');
+  
+  console.log('[updatePopoverByProvider] 元素存在性:', {
+    ratioSection: !!ratioSection,
+    resolutionRow: !!resolutionRow,
+    familyRow: !!familyRow,
+    modelSelectWrapper: !!modelSelectWrapper
+  });
+
+  if (simpleMode) {
+    // 简易模式：隐藏比例/分辨率/模型系列按钮，显示下拉框
+    if (ratioSection) ratioSection.style.display = 'none';
+    if (resolutionRow) resolutionRow.style.display = 'none';
+    if (familyRow) familyRow.style.display = 'none';
+    if (modelSelectWrapper) modelSelectWrapper.style.display = '';
+    console.log('[popover] 简易模式：隐藏比例/分辨率/模型系列按钮，显示下拉框');
+  } else {
+    // 完整模式：显示所有选项，隐藏下拉框
+    if (ratioSection) ratioSection.style.display = '';
+    if (resolutionRow) resolutionRow.style.display = '';
+    if (familyRow) familyRow.style.display = '';
+    if (modelSelectWrapper) modelSelectWrapper.style.display = 'none';
+    console.log('[popover] 完整模式：显示比例/分辨率/模型系列按钮，隐藏下拉框');
+  }
 }
 
 export function initPromptArea() {
@@ -365,9 +432,13 @@ export function initPromptArea() {
 
   // --- 初始同步 ---
   syncSettingsState();
+  // 额外确保第一次更新 UI（基于当前提供商）
+  updatePopoverByProvider();
 
   // --- 弹出面板开/关（带动画） ---
   function openPopover() {
+    // 打开前确保 UI 基于当前提供商正确显示
+    updatePopoverByProvider();
     popover.style.display = 'flex';
     popover.classList.remove('popover-exit');
     void popover.offsetWidth;
@@ -497,6 +568,179 @@ export function initPromptArea() {
     });
   }
 
+  // --- 简易模式开关 ---
+  const simpleModeToggle = $('#popoverSimpleMode');
+  if (simpleModeToggle) {
+    const { simpleMode } = getState();
+    simpleModeToggle.checked = simpleMode;
+    simpleModeToggle.addEventListener('change', () => {
+      setState({ simpleMode: simpleModeToggle.checked });
+    });
+  }
+
+  // --- 简易模式下自定义模型下拉框 ---
+  const customModelSelector = $('#customModelSelector');
+  const customModelTrigger = $('#customModelTrigger');
+  const customModelDropdown = $('#customModelDropdown');
+  const customModelSearch = $('#customModelSearch');
+  const customModelList = $('#customModelList');
+  const customModelRefresh = $('#customModelRefresh');
+  
+  let isDropdownOpen = false;
+  
+  // 渲染自定义模型列表（带分组、搜索）
+  function renderCustomModelList(filterText = '') {
+    if (!customModelList) return;
+    const { models, selectedModelId } = getState();
+    if (!models || models.length === 0) {
+      customModelList.innerHTML = '<div class="model-dropdown-empty">暂无可用模型</div>';
+      return;
+    }
+    
+    // 按 provider 分组
+    const groups = {};
+    models.forEach(model => {
+      const provider = model.provider || '其他';
+      if (!groups[provider]) groups[provider] = [];
+      groups[provider].push(model);
+    });
+    
+    // 过滤
+    const lowerFilter = filterText.toLowerCase();
+    let hasResults = false;
+    let html = '';
+    
+    Object.keys(groups).sort().forEach(provider => {
+      const filteredModels = groups[provider].filter(model => 
+        !filterText || model.id.toLowerCase().includes(lowerFilter)
+      );
+      if (filteredModels.length === 0) return;
+      hasResults = true;
+      html += `<div class="model-dropdown-group-label">${escapeHtml(provider)}</div>`;
+      filteredModels.forEach(model => {
+        const isSelected = (model.id === selectedModelId);
+        html += `
+          <div class="model-dropdown-item ${isSelected ? 'highlighted' : ''}" data-mid="${escapeHtml(model.id)}">
+            <span class="md-name">${escapeHtml(model.id)}</span>
+            <span class="md-owner">${escapeHtml(model.provider || '')}</span>
+          </div>
+        `;
+      });
+    });
+    
+    if (!hasResults) {
+      html = '<div class="model-dropdown-empty">未找到匹配的模型</div>';
+    }
+    customModelList.innerHTML = html;
+    
+    // 绑定点击事件
+    customModelList.querySelectorAll('.model-dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const modelId = item.getAttribute('data-mid');
+        if (!modelId) return;
+        const { models } = getState();
+        const selectedModel = models.find(m => m.id === modelId);
+        if (selectedModel) {
+          setState({
+            selectedModelId: modelId,
+            selectedProvider: selectedModel.provider
+          });
+          // 更新触发按钮显示文字
+          if (customModelTrigger) {
+            const nameSpan = customModelTrigger.querySelector('.trigger-name');
+            if (nameSpan) nameSpan.textContent = modelId;
+          }
+        }
+        closeDropdown();
+      });
+    });
+  }
+  
+  function openDropdown() {
+    if (!customModelDropdown) return;
+    // 重新渲染确保最新数据
+    renderCustomModelList(customModelSearch ? customModelSearch.value : '');
+    customModelDropdown.style.display = 'flex';
+    isDropdownOpen = true;
+    if (customModelSearch) {
+      customModelSearch.focus();
+      customModelSearch.value = '';
+      renderCustomModelList('');
+    }
+  }
+  
+  function closeDropdown() {
+    if (!customModelDropdown) return;
+    customModelDropdown.style.display = 'none';
+    isDropdownOpen = false;
+  }
+  
+  function toggleDropdown() {
+    if (isDropdownOpen) {
+      closeDropdown();
+    } else {
+      openDropdown();
+    }
+  }
+  
+  // 触发按钮点击
+  if (customModelTrigger) {
+    customModelTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleDropdown();
+    });
+  }
+  
+  // 搜索输入事件
+  if (customModelSearch) {
+    customModelSearch.addEventListener('input', (e) => {
+      renderCustomModelList(e.target.value);
+    });
+  }
+  
+  // 刷新按钮
+  if (customModelRefresh) {
+    customModelRefresh.addEventListener('click', async () => {
+      const { fetchModels } = await import('./modelSelector.js');
+      await fetchModels();
+      renderCustomModelList(customModelSearch ? customModelSearch.value : '');
+    });
+  }
+  
+  // 点击外部关闭下拉框
+  document.addEventListener('click', (e) => {
+    if (isDropdownOpen && customModelSelector && !customModelSelector.contains(e.target)) {
+      closeDropdown();
+    }
+  });
+  
+  // 订阅 models 变化时更新触发按钮文字和下拉列表
+  const updateTriggerName = () => {
+    if (!customModelTrigger) return;
+    const { selectedModelId } = getState();
+    if (selectedModelId) {
+      const nameSpan = customModelTrigger.querySelector('.trigger-name');
+      if (nameSpan) nameSpan.textContent = selectedModelId;
+    }
+  };
+  subscribe('models', () => {
+    if (isDropdownOpen) {
+      renderCustomModelList(customModelSearch ? customModelSearch.value : '');
+    }
+    updateTriggerName();
+  });
+  subscribe('selectedModelId', updateTriggerName);
+  
+  // 初始化显示
+  updateTriggerName();
+  if (customModelList) {
+    renderCustomModelList('');
+  }
+  
+  // 注意：原来的 modelSelectWrapper 仍然控制显示隐藏，但内容已替换为自定义结构
+  const modelSelectWrapper = $('#modelSelectWrapper');
+
   // --- + 按钮添加参考图 ---
   const fileInput = $('#attachFileInput');
   $('#attachBtn').addEventListener('click', () => {
@@ -523,6 +767,10 @@ export function initPromptArea() {
   subscribe('selectedFamilyId', syncSettingsState);
   subscribe('selectedResolution', syncSettingsState);
   subscribe('models', syncSettingsState);
+  subscribe('simpleMode', () => {
+    updatePopoverByProvider();
+    syncSettingsState();
+  });
   subscribe('statusText', (newStatus) => {
     if (!newStatus) return;
     // Remove generating glow when idle or error

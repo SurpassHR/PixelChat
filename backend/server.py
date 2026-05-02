@@ -296,7 +296,7 @@ MAX_CONCURRENT = 2       # Max concurrent generation requests
 MAX_QUEUE_DEPTH = 20     # Max pending tasks before rejecting
 REQUEST_TIMEOUT = 3600   # Hard ceiling (1h), only prevents infinite hang
 CHUNK_READ_TIMEOUT = 180  # Socket read timeout per chunk — 允许更长的处理间隔（例如返回102时）
-MAX_RETRIES = 1          # Only retry on network disconnect, not flow2api content errors
+MAX_RETRIES = 2          # Only retry on network disconnect, not flow2api content errors; 429 also retries with longer delay
 RETRY_BASE_DELAY = 5     # Base delay (s) for exponential backoff
 
 _tasks = {}
@@ -553,6 +553,20 @@ def _execute_task(task_id):
                 }
 
                 request_url = build_api_url(base, '/v1/chat/completions')
+                # 打印请求详情（隐藏完整 API Key）
+                masked_key = key[:8] + '...' if len(key) > 8 else '(空)'
+                print(f'\n[后端请求] 任务 {task_id}')
+                print(f'  URL: {request_url}')
+                print(f'  Method: POST')
+                print(f'  Headers: { {k: v if k != "Authorization" else "Bearer " + masked_key for k, v in headers.items()} }')
+                print(f'  Model: {task["model"]}')
+                print(f'  Prompt 长度: {len(task["prompt"])}')
+                print(f'  Ref 数量: {len(refs)}')
+                print(f'  尝试次数: {attempt + 1}/{1 + MAX_RETRIES}')
+                # 可选：打印请求体摘要（避免过长）
+                body_preview = task["prompt"][:200] + ('...' if len(task["prompt"]) > 200 else '')
+                print(f'  Prompt 预览: {body_preview}')
+
                 req = urllib.request.Request(
                     request_url,
                     data=encoded,
@@ -616,7 +630,13 @@ def _execute_task(task_id):
                                 print(f'[等待] 任务 {task_id} 已等待 {elapsed:.0f}s 尚未收到思考内容，继续等待（可能服务端返回102处理中）...')
 
                             # chunk 日志
-                            delta_preview = chunk.get('choices', [{}])[0].get('delta', {}) if chunk.get('choices') else {}
+                            choices_list = chunk.get('choices')
+                            if choices_list and len(choices_list) > 0:
+                                delta_preview = choices_list[0].get('delta', {})
+                                finish_reason_chunk = choices_list[0].get('finish_reason', '') or ''
+                            else:
+                                delta_preview = {}
+                                finish_reason_chunk = ''
                             r_len = len(delta_preview.get('reasoning_content', '') or '')
                             c_len = len(delta_preview.get('content', '') or '')
                             if r_len or c_len:
@@ -625,7 +645,6 @@ def _execute_task(task_id):
                             # 检测 flow2api 返回的失败信号
                             content_preview = delta_preview.get('content', '') or ''
                             reasoning_preview = delta_preview.get('reasoning_content', '') or ''
-                            finish_reason_chunk = (chunk.get('choices', [{}])[0].get('finish_reason', '') or '')
 
                             error_keywords = ['❌', '失败', 'error', 'Error', 'ERROR', '违规', '拒绝', 'denied']
                             is_error_chunk = any(kw in content_preview or kw in reasoning_preview for kw in error_keywords)
@@ -777,7 +796,28 @@ def _execute_task(task_id):
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode('utf-8', errors='replace')[:500]
                 status_code = e.code
-                if status_code >= 500 and attempt < MAX_RETRIES:
+                print(f'[后端响应错误] 任务 {task_id}')
+                print(f'  状态码: {status_code}')
+                print(f'  响应体: {err_body}')
+                # 429 Too Many Requests: 使用更长退避时间重试
+                if status_code == 429:
+                    if attempt < MAX_RETRIES:
+                        delay = 30 * (attempt + 1)  # 30s, 60s, ...
+                        last_error = f'HTTP 429: {err_body}'
+                        print(f'[限流] 任务 {task_id} 遭遇频率限制，{delay:.0f}s 后进行第 {attempt + 1}/{MAX_RETRIES} 次重试')
+                        time.sleep(delay)
+                        continue
+                    else:
+                        # 重试次数用尽，标记失败
+                        with _tasks_lock:
+                            if task_id in _tasks and _tasks[task_id]['status'] != 'cancelled':
+                                t = _tasks[task_id]
+                                t['status'] = 'failed'
+                                t['error'] = f'请求过于频繁，请稍后重试 (HTTP 429): {err_body}'
+                                t['updated_at'] = time.time()
+                                _save_task(t)
+                        return
+                elif status_code >= 500 and attempt < MAX_RETRIES:
                     last_error = f'HTTP {status_code}: {err_body}'
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
                     print(f'[重试] 任务 {task_id} HTTP {status_code}，'
@@ -795,6 +835,7 @@ def _execute_task(task_id):
 
             except (urllib.error.URLError, socket.timeout, OSError) as e:
                 err_msg = str(e.reason)[:200] if hasattr(e, 'reason') else str(e)[:200]
+                print(f'[后端连接错误] 任务 {task_id} - {err_msg}')
                 if attempt < MAX_RETRIES:
                     last_error = err_msg
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)

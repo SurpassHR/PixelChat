@@ -22,7 +22,8 @@ const state = {
   batchSize: 1,
   aspectRatio: '1:1',
   selectedFamilyId: '',
-  selectedResolution: '1K'
+  selectedResolution: '1K',
+  simpleMode: false
 };
 
 // --------------------------------------------------------------
@@ -312,7 +313,8 @@ function debouncedBackendSync() {
         batchSize: state.batchSize,
         aspectRatio: state.aspectRatio,
         selectedFamilyId: state.selectedFamilyId,
-        selectedResolution: state.selectedResolution
+        selectedResolution: state.selectedResolution,
+        simpleMode: state.simpleMode
       });
     } catch { }
   }, 200);
@@ -335,6 +337,11 @@ async function apiGet(path) {
 async function apiPost(path, data) {
   const base = getStorageBase();
   if (!base) throw new Error('no backend');
+  console.log(`[apiPost] 准备发送请求到 ${base + path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: data
+  });
   const res = await fetch(base + path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1399,6 +1406,12 @@ async function apiGetTasks() {
 
 async function apiPostTask(data) {
   const base = getStorageBase();
+  console.log('[apiPostTask] 准备发送请求', {
+    url: `${base}/api/tasks`,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: data
+  });
   if (!base) throw new Error('no backend');
   const res = await fetch(base + '/api/tasks', {
     method: 'POST',
@@ -1563,6 +1576,7 @@ export async function initStore() {
     if (settings.aspectRatio !== undefined) state.aspectRatio = settings.aspectRatio;
     if (settings.selectedFamilyId !== undefined) state.selectedFamilyId = settings.selectedFamilyId;
     if (settings.selectedResolution !== undefined) state.selectedResolution = settings.selectedResolution;
+    if (settings.simpleMode !== undefined) state.simpleMode = settings.simpleMode;
   }
   
   // 恢复当前会话 ID

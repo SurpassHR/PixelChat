@@ -144,6 +144,23 @@
             <button class="family-btn" data-family="gemini-3.1-flash-image">Gemini 3.1 Flash</button>
             <button class="family-btn" data-family="imagen-4.0">Imagen 4.0</button>
           </div>
+          <div class="model-select-wrapper" id="modelSelectWrapper" style="display:none">
+            <div class="custom-model-selector" id="customModelSelector">
+              <button class="custom-model-trigger" id="customModelTrigger">
+                <span class="trigger-name" id="customModelName">选择模型</span>
+                <span class="trigger-arrow">▾</span>
+              </button>
+              <div class="model-dropdown" id="customModelDropdown" style="display: none;">
+                <div class="model-dropdown-search">
+                  <input type="text" id="customModelSearch" placeholder="搜索模型..." autocomplete="off" spellcheck="false">
+                </div>
+                <div class="model-dropdown-list" id="customModelList"></div>
+                <div class="model-dropdown-footer">
+                  <button class="model-dropdown-refresh" id="customModelRefresh">↻ 刷新模型列表</button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="popover-section">
           <div class="popover-section-label">分辨率</div>
@@ -162,6 +179,11 @@
           <label class="popover-toggle">
             <span>复用参考图</span>
             <input type="checkbox" id="popoverReuseRef">
+            <span class="toggle-indicator"></span>
+          </label>
+          <label class="popover-toggle">
+            <span>简易模式</span>
+            <input type="checkbox" id="popoverSimpleMode">
             <span class="toggle-indicator"></span>
           </label>
         </div>
