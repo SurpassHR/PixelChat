@@ -469,6 +469,9 @@ document.addEventListener('keydown', async e => {
 });
 
 function onMouseDown(e) {
+  // 点击画布时让输入框编辑器失焦（收起高度）
+  if (document.activeElement) document.activeElement.blur();
+
   // End any previous rubber band
   if (_rubberBandEl) {
     endRubberBand();
