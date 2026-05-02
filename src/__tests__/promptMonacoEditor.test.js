@@ -86,8 +86,13 @@ describe('内联 Monaco 编辑器 — JS 展开/收起逻辑', () => {
     expect(rawJs).toMatch(/Math\.min\s*\(\s*contentHeight\s*,\s*maxHeight\s*\)/);
   });
 
-  it('expanded=false 时高度为 30px', () => {
+  it('expanded=false 时高度为 30px 且 align-items 为 center', () => {
     expect(rawJs).toMatch(/height\s*=\s*30/);
+    expect(rawJs).toMatch(/alignItems\s*=\s*'center'/);
+  });
+
+  it('expanded=true 时 align-items 为 flex-end', () => {
+    expect(rawJs).toMatch(/alignItems\s*=\s*'flex-end'/);
   });
 
   it('监听 onDidFocusEditorWidget 展开编辑器', () => {

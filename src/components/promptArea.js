@@ -783,6 +783,7 @@ export function initPromptArea() {
     if (!_monacoEditor) return;
     _monacoExpanded = !!expanded;
     const container = $('#promptMonacoEditor');
+    const inputRow = document.querySelector('.prompt-input-row');
     let height;
     if (expanded) {
       const model = _monacoEditor.getModel();
@@ -790,8 +791,10 @@ export function initPromptArea() {
       const contentHeight = lineCount * 22 + 8;
       const maxHeight = window.innerHeight * 0.4;
       height = Math.min(contentHeight, maxHeight);
+      if (inputRow) inputRow.style.alignItems = 'flex-end';
     } else {
       height = 30;
+      if (inputRow) inputRow.style.alignItems = 'center';
     }
     container.style.height = height + 'px';
     _monacoEditor.layout({ width: container.clientWidth, height: height });
