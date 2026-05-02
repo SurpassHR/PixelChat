@@ -99,6 +99,17 @@ function removeRefImage(index) {
   setState({ refImages: [...refImages] });
 }
 
+function fitTextSize(el, maxSize = 12, minSize = 8) {
+  if (!el) return;
+  el.style.fontSize = maxSize + 'px';
+  if (el.scrollWidth <= el.clientWidth) return;
+  let size = maxSize;
+  while (size > minSize && el.scrollWidth > el.clientWidth) {
+    size -= 0.5;
+    el.style.fontSize = size + 'px';
+  }
+}
+
 // Module-scoped Monaco state (shared with initPromptArea)
 let _monacoEditor = null;
 let _monacoVisible = false;
@@ -573,7 +584,10 @@ export function initPromptArea() {
       html = '<div class="model-dropdown-empty">未找到匹配的模型</div>';
     }
     customModelList.innerHTML = html;
-    
+
+    // 自适应字号：长名称自动缩小字体避免溢出
+    customModelList.querySelectorAll('.md-name').forEach(el => fitTextSize(el));
+
     // 绑定点击事件
     customModelList.querySelectorAll('.model-dropdown-item').forEach(item => {
       item.addEventListener('click', (e) => {
@@ -662,7 +676,10 @@ export function initPromptArea() {
     const { selectedModelId } = getState();
     if (selectedModelId) {
       const nameSpan = customModelTrigger.querySelector('.trigger-name');
-      if (nameSpan) nameSpan.textContent = selectedModelId;
+      if (nameSpan) {
+        nameSpan.textContent = selectedModelId;
+        fitTextSize(nameSpan);
+      }
     }
   };
   subscribe('models', () => {
