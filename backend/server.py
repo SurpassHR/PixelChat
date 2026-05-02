@@ -319,19 +319,31 @@ def _init_tasks_table():
             error TEXT DEFAULT '',
             thinking TEXT DEFAULT '',
             retry_count INTEGER DEFAULT 0,
+            request_url TEXT DEFAULT '',
+            request_body TEXT DEFAULT '',
+            request_headers TEXT DEFAULT '',
+            response_status INTEGER DEFAULT 0,
+            response_headers TEXT DEFAULT '',
+            response_body TEXT DEFAULT '',
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         )
     ''')
     # 迁移：为已有表添加新列
-    try:
-        conn.execute('ALTER TABLE tasks ADD COLUMN thinking TEXT DEFAULT \'\'')
-    except sqlite3.OperationalError:
-        pass
-    try:
-        conn.execute('ALTER TABLE tasks ADD COLUMN retry_count INTEGER DEFAULT 0')
-    except sqlite3.OperationalError:
-        pass
+    for col, col_type in [
+        ('thinking', 'TEXT DEFAULT \'\''),
+        ('retry_count', 'INTEGER DEFAULT 0'),
+        ('request_url', 'TEXT DEFAULT \'\''),
+        ('request_body', 'TEXT DEFAULT \'\''),
+        ('request_headers', 'TEXT DEFAULT \'\''),
+        ('response_status', 'INTEGER DEFAULT 0'),
+        ('response_headers', 'TEXT DEFAULT \'\''),
+        ('response_body', 'TEXT DEFAULT \'\''),
+    ]:
+        try:
+            conn.execute(f'ALTER TABLE tasks ADD COLUMN {col} {col_type}')
+        except sqlite3.OperationalError:
+            pass
     conn.commit()
     conn.close()
 
@@ -363,14 +375,22 @@ def _load_tasks():
 def _save_task(task):
     conn = get_db()
     conn.execute('''
-        INSERT OR REPLACE INTO tasks (id, status, prompt, model, provider, refs, image_url, error, thinking, retry_count, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO tasks (id, status, prompt, model, provider, refs, image_url, error, thinking, retry_count,
+                                     request_url, request_body, request_headers, response_status, response_headers, response_body,
+                                     created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         task['id'], task['status'], task['prompt'], task['model'], task['provider'],
         json.dumps(task.get('refs', [])),
         task.get('image_url', ''), task.get('error', ''),
         task.get('thinking', ''),
         task.get('retry_count', 0),
+        task.get('request_url', ''),
+        task.get('request_body', ''),
+        task.get('request_headers', ''),
+        task.get('response_status', 0),
+        task.get('response_headers', ''),
+        task.get('response_body', ''),
         task['created_at'], task['updated_at']
     ))
     conn.commit()
@@ -592,7 +612,24 @@ def _execute_task(task_id):
 
                 # 保存请求信息到任务，供前端详情展示
                 task['request_url'] = request_url
-                task['request_body'] = json.dumps(body, ensure_ascii=False, indent=2)
+                # 截断 body 中的 base64 图像数据，保留结构但避免存储巨量字符
+                def _truncate_base64(obj):
+                    if isinstance(obj, str):
+                        return re_module.sub(
+                            r'(data:image/\w+;base64,)[A-Za-z0-9+/=]{100,}',
+                            r'\1[base64 图像数据已省略]',
+                            obj
+                        )
+                    elif isinstance(obj, dict):
+                        return {k: _truncate_base64(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [_truncate_base64(v) for v in obj]
+                    return obj
+                task['request_body'] = json.dumps(_truncate_base64(body), ensure_ascii=False, indent=2)
+                task['request_headers'] = json.dumps(
+                    {k: (v if k != 'Authorization' else f'Bearer {key[:8]}...') for k, v in headers.items()},
+                    ensure_ascii=False, indent=2
+                )
                 # 打印请求详情（隐藏完整 API Key）
                 masked_key = key[:8] + '...' if len(key) > 8 else '(空)'
                 print(f'\n[后端请求] 任务 {task_id}')
@@ -628,13 +665,18 @@ def _execute_task(task_id):
                 if is_gpt_image:
                     # gpt-image 非流式响应：直接读取完整 JSON
                     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                        task['response_status'] = resp.status
+                        task['response_headers'] = json.dumps(dict(resp.getheaders()), ensure_ascii=False)
                         raw = resp.read()
                     resp_data = json.loads(raw.decode('utf-8'))
+                    task['response_body'] = json.dumps(resp_data, ensure_ascii=False)[:10000]
                     thinking = ''
                     final_content = resp_data.get('choices', [{}])[0].get('message', {}).get('content', '') or ''
                     print(f'[非流式] 任务 {task_id} 收到响应，content 长度={len(final_content)}')
                 else:
                     with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT) as resp:
+                        task['response_status'] = resp.status
+                        task['response_headers'] = json.dumps(dict(resp.getheaders()), ensure_ascii=False)
                         # 穿透包装层找到底层 socket 设置读超时（多层 try/except 兜底）
                         sock = None
                         try:
@@ -811,6 +853,7 @@ def _execute_task(task_id):
                             }
                         }]
                     }
+                    task['response_body'] = json.dumps(resp_data, ensure_ascii=False)[:10000]
     
                 image_url = _store_image_from_response(resp_data, base)
 
@@ -845,6 +888,9 @@ def _execute_task(task_id):
             except urllib.error.HTTPError as e:
                 err_body = e.read().decode('utf-8', errors='replace')[:500]
                 status_code = e.code
+                task['response_status'] = status_code
+                task['response_headers'] = json.dumps(dict(e.headers.items()), ensure_ascii=False)
+                task['response_body'] = err_body[:10000]
                 print(f'[后端响应错误] 任务 {task_id}')
                 print(f'  状态码: {status_code}')
                 print(f'  响应体: {err_body}')

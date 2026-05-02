@@ -55,6 +55,22 @@ function showDetail(entry) {
   const prompt = entry.prompt || '';
   const requestUrl = entry.request_url || '';
   const requestBody = entry.request_body || '';
+  const requestHeaders = entry.request_headers || '';
+  const responseStatus = entry.response_status || 0;
+  const responseHeaders = entry.response_headers || '';
+  const responseBody = entry.response_body || '';
+
+  function fmtJson(raw) {
+    if (!raw) return '';
+    try {
+      const parsed = JSON.parse(raw);
+      return escapeHtml(JSON.stringify(parsed, null, 2));
+    } catch {
+      return escapeHtml(raw);
+    }
+  }
+
+  const resStatusClass = responseStatus >= 200 && responseStatus < 300 ? 'log-detail-success' : 'log-detail-error';
 
   detailOverlay = document.createElement('div');
   detailOverlay.className = 'log-detail-overlay';
@@ -83,10 +99,34 @@ function showDetail(entry) {
           <div class="log-detail-value" style="font-family:'JetBrains Mono',monospace;font-size:12px;word-break:break-all">${escapeHtml(requestUrl)}</div>
         </div>
         ` : ''}
+        ${requestHeaders ? `
+        <div class="log-detail-field">
+          <span class="log-detail-label">请求头 (Request Headers)</span>
+          <pre class="log-detail-json">${fmtJson(requestHeaders)}</pre>
+        </div>
+        ` : ''}
         ${requestBody ? `
         <div class="log-detail-field">
-          <span class="log-detail-label">请求体 (JSON)</span>
+          <span class="log-detail-label">请求体 (Request Body)</span>
           <pre class="log-detail-json">${escapeHtml(requestBody)}</pre>
+        </div>
+        ` : ''}
+        ${responseStatus ? `
+        <div class="log-detail-field">
+          <span class="log-detail-label">响应状态 (Response Status)</span>
+          <div class="log-detail-value ${resStatusClass}">${responseStatus}</div>
+        </div>
+        ` : ''}
+        ${responseHeaders ? `
+        <div class="log-detail-field">
+          <span class="log-detail-label">响应头 (Response Headers)</span>
+          <pre class="log-detail-json">${fmtJson(responseHeaders)}</pre>
+        </div>
+        ` : ''}
+        ${responseBody ? `
+        <div class="log-detail-field">
+          <span class="log-detail-label">响应体 (Response Body)</span>
+          <pre class="log-detail-json">${fmtJson(responseBody)}</pre>
         </div>
         ` : ''}
         ${isSuccess ? `
@@ -131,6 +171,10 @@ function addLogEntry(task, type) {
     provider: task.provider || '',
     request_url: task.request_url || '',
     request_body: task.request_body || '',
+    request_headers: task.request_headers || '',
+    response_status: task.response_status || 0,
+    response_headers: task.response_headers || '',
+    response_body: task.response_body || '',
     created_at: task.created_at || Math.floor(Date.now() / 1000)
   });
 
@@ -166,6 +210,12 @@ export async function initTaskLog() {
           error: t.error || '',
           model: t.model || '',
           provider: t.provider || '',
+          request_url: t.request_url || '',
+          request_body: t.request_body || '',
+          request_headers: t.request_headers || '',
+          response_status: t.response_status || 0,
+          response_headers: t.response_headers || '',
+          response_body: t.response_body || '',
           created_at: t.created_at || Math.floor(Date.now() / 1000)
         }));
         logEntries.sort((a, b) => b.created_at - a.created_at);

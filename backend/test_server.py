@@ -32,6 +32,8 @@ import server
 
 
 class FakeStream:
+    status = 200
+
     def __enter__(self):
         return self
 
@@ -41,6 +43,12 @@ class FakeStream:
     @property
     def fp(self):
         return None
+
+    def getheaders(self):
+        return [('Content-Type', 'text/event-stream'), ('Transfer-Encoding', 'chunked')]
+
+    def read(self, *args):
+        return b'{"choices":[{"message":{"content":"![img](https://example.com/out.png)"}}]}'
 
     def __iter__(self):
         return iter([
@@ -99,14 +107,10 @@ class GenerateRequestModelTest(unittest.TestCase):
         self.assertEqual(captured['url'], 'https://api.example.test/v1/chat/completions')
         self.assertEqual(captured['headers']['Authorization'], 'Bearer sk-test')
         self.assertEqual(captured['body']['model'], 'gpt-image-2')
-        self.assertTrue(captured['body']['stream'])
-        self.assertEqual(captured['body']['messages'][0]['role'], 'user')
-        content = captured['body']['messages'][0]['content']
-        self.assertEqual(content[0], {'type': 'text', 'text': '画一只猫'})
-        self.assertEqual(content[1], {
-            'type': 'image_url',
-            'image_url': {'url': 'data:image/png;base64,AAAA'},
-        })
+        # gpt-image 使用非流式 prompt/n/size 格式，不带 refs
+        self.assertEqual(captured['body']['prompt'], '画一只猫')
+        self.assertEqual(captured['body']['n'], 1)
+        self.assertIn('size', captured['body'])
 
 
 if __name__ == '__main__':
