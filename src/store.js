@@ -170,24 +170,47 @@ function isExternalImageUrl(url) {
   return false;
 }
 
-// 对外部图片 URL 进行修复：尝试下载到后端存储
+// 对外部图片 URL 进行修复：浏览器端 fetch → 转 base64 → 上传后端
+// 浏览器与 <img> 标签使用相同网络环境，避免后端 TLS/网络差异导致下载失败
 // 成功返回本地 URL，失败返回原 URL
 async function healExternalImageUrl(url) {
   if (!isExternalImageUrl(url)) return url;
   try {
-    const base = getStorageBase();
-    const res = await fetch(base + '/api/images/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url })
+    // 方式一：浏览器端 fetch 图片（与 <img> 同环境），转 base64 后上传后端
+    const imgRes = await fetch(url);
+    if (!imgRes.ok) throw new Error('HTTP ' + imgRes.status);
+    const blob = await imgRes.blob();
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
     });
-    if (res.ok) {
-      const data = await res.json();
-      console.log('[修复] 外部图片已导入: %s → %s', url.slice(0, 80), data.url);
-      return data.url;
+    const localUrl = await ensureImageUrl(dataUrl);
+    if (localUrl && localUrl !== dataUrl) {
+      // 提取相对路径，与 session 中其他 imageUrl 格式保持一致
+      const relativePath = new URL(localUrl).pathname;
+      console.log('[修复] 外部图片已导入 (浏览器fetch): %s → %s', url.slice(0, 80), relativePath);
+      return relativePath;
     }
-  } catch (e) {
-    console.warn('[修复] 外部图片导入失败: %s, 错误: %s', url.slice(0, 80), e.message);
+  } catch (fetchErr) {
+    console.warn('[修复] 浏览器 fetch 方式失败: %s, 尝试后端下载...', fetchErr.message);
+    // 方式二：降级到后端下载（适用于 CORS 受限但后端可访问的场景）
+    try {
+      const base = getStorageBase();
+      const res = await fetch(base + '/api/images/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[修复] 外部图片已导入 (后端下载): %s → %s', url.slice(0, 80), data.url);
+        return data.url;
+      }
+    } catch (backendErr) {
+      console.warn('[修复] 后端下载也失败: %s', backendErr.message);
+    }
   }
   return url;
 }
