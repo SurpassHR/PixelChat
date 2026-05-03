@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
@@ -71,5 +71,41 @@ describe('Ctrl+H 图片模糊功能', () => {
 
     const computed = window.getComputedStyle(container);
     expect(computed.overflow).not.toBe('hidden');
+  });
+
+  async function setupCanvasModule(session) {
+    vi.resetModules();
+    document.body.innerHTML = `
+      <div id="canvasContainer">
+        <div id="canvasSurface"></div>
+        <div id="canvasPlaceholder"></div>
+      </div>
+    `;
+    global.fetch = vi.fn(() => Promise.reject(new Error('backend unavailable')));
+
+    const store = await import('../store.js');
+    store.getState().sessions = { [session.id]: session };
+    store.getState().currentSessionId = session.id;
+
+    const { initCanvas } = await import('../components/canvas.js');
+    initCanvas();
+    return store;
+  }
+
+  it('初始化画布时应该恢复当前会话已保存的模糊状态', async () => {
+    await setupCanvasModule({ id: 'session1', imagesBlurred: true, stacks: [] });
+
+    expect(document.body.classList.contains('images-blurred')).toBe(true);
+    expect(document.getElementById('canvasSurface').classList.contains('images-blurred')).toBe(true);
+  });
+
+  it('再次 Ctrl+H 取消模糊时应该同步保存到当前会话', async () => {
+    const store = await setupCanvasModule({ id: 'session1', imagesBlurred: true, stacks: [] });
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'h', ctrlKey: true }));
+
+    expect(store.getState().sessions.session1.imagesBlurred).toBe(false);
+    expect(document.body.classList.contains('images-blurred')).toBe(false);
+    expect(document.getElementById('canvasSurface').classList.contains('images-blurred')).toBe(false);
   });
 });
