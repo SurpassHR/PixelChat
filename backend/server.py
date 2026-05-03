@@ -256,6 +256,20 @@ def upload_image():
 
     return jsonify({'url': f'/api/images/{image_id}'})
 
+@app.route('/api/images/import', methods=['POST'])
+def import_image():
+    """下载外部 URL 图片并存入本地 SQLite，返回本地 URL。用于修复过期的外部链接。"""
+    data = request.get_json(force=True, silent=True) or {}
+    url = (data.get('url') or '').strip()
+    if not url:
+        return jsonify({'error': 'url is required'}), 400
+    if not url.startswith('http'):
+        return jsonify({'error': 'only http/https URLs are supported'}), 400
+    local_url = _download_and_store_image(url)
+    if not local_url:
+        return jsonify({'error': '下载外部图片失败，链接可能已过期'}), 502
+    return jsonify({'url': local_url, 'original_url': url})
+
 @app.route('/api/images/<path:image_path>')
 def serve_image(image_path):
     ext = image_path.rsplit('.', 1)[-1].lower() if '.' in image_path else 'png'
@@ -432,7 +446,8 @@ def _store_image_from_response(resp_data, base_url):
     """Extract image from API response in any format and store in SQLite.
 
     Handles: remote URL → download+store, data: URL → store raw,
-    b64_json field → store raw. Returns local /api/images/<id> URL or ''.
+    b64_json field → store raw. Returns local /api/images/<id> URL.
+    下载外部 URL 失败时保留原始 URL 作为降级，前端可后续通过 /api/images/import 修复。
     """
     # Try URL-based extraction first
     url = _extract_image_url(resp_data, base_url)
@@ -450,10 +465,12 @@ def _store_image_from_response(resp_data, base_url):
         if url.startswith('http'):
             if '127.0.0.1' in url or 'localhost' in url:
                 return url  # Already a local URL
-            return _download_and_store_image(url)  # Remote → download
+            local = _download_and_store_image(url)
+            return local if local else url  # 下载失败时保留原始 URL 作为降级
 
         if url.startswith('/'):
-            return _download_and_store_image(base_url + url)
+            local = _download_and_store_image(base_url + url)
+            return local if local else (base_url + url)  # 下载失败时保留原始 URL
 
         return url  # some other format, use as-is
 
@@ -1038,13 +1055,17 @@ _queue_thread.start()
 # --- Migrate existing images in session data into SQLite ---
 
 def _migrate_existing_images():
-    """Scan existing session data and download remote/data: image URLs into SQLite."""
+    """Scan existing session data and download remote/data: image URLs into SQLite.
+    同时迁移 messages、droppedImages 和 stacks 中的图片 URL。
+    """
     sessions = kv_get('sessions', {})
     if not sessions or not isinstance(sessions, dict):
         return
 
     migrated = 0
+    failed = 0
     for sid, session in sessions.items():
+        # 迁移 messages 中的 assistant 图片
         for msg in (session.get('messages') or []):
             if msg.get('role') != 'assistant':
                 continue
@@ -1081,10 +1102,66 @@ def _migrate_existing_images():
                     msg['imageUrl'] = new_url
                     migrated += 1
                     print(f'[迁移] 现有远程图片 → {new_url}')
+                else:
+                    failed += 1
+                    print(f'[迁移] 远程图片下载失败（URL可能已过期）: {url[:120]}')
 
-    if migrated:
+        # 迁移 droppedImages
+        for img in (session.get('droppedImages') or []):
+            url = img.get('imageUrl', '') or ''
+            if not url or url.startswith('/api/images/'):
+                continue
+            if url.startswith('data:'):
+                mime = 'image/png'
+                header = url.split(',')[0] if ',' in url else ''
+                if ';' in header:
+                    mime = header.split(';')[0].split(':')[1] or mime
+                raw = url.split(',', 1)[1] if ',' in url else url
+                new_url = _store_image_blob(raw, mime)
+                if new_url:
+                    img['imageUrl'] = new_url
+                    migrated += 1
+                    print(f'[迁移] droppedImage 内联 → {new_url}')
+            elif url.startswith('http'):
+                new_url = _download_and_store_image(url)
+                if new_url:
+                    img['imageUrl'] = new_url
+                    migrated += 1
+                    print(f'[迁移] droppedImage 远程 → {new_url}')
+                else:
+                    failed += 1
+                    print(f'[迁移] droppedImage 下载失败: {url[:120]}')
+
+        # 迁移 stacks 中子项的图片
+        for stack in (session.get('stacks') or []):
+            for item in (stack.get('items') or []):
+                url = item.get('imageUrl', '') or ''
+                if not url or url.startswith('/api/images/'):
+                    continue
+                if url.startswith('data:'):
+                    mime = 'image/png'
+                    header = url.split(',')[0] if ',' in url else ''
+                    if ';' in header:
+                        mime = header.split(';')[0].split(':')[1] or mime
+                    raw = url.split(',', 1)[1] if ',' in url else url
+                    new_url = _store_image_blob(raw, mime)
+                    if new_url:
+                        item['imageUrl'] = new_url
+                        migrated += 1
+                        print(f'[迁移] stack 内联 → {new_url}')
+                elif url.startswith('http'):
+                    new_url = _download_and_store_image(url)
+                    if new_url:
+                        item['imageUrl'] = new_url
+                        migrated += 1
+                        print(f'[迁移] stack 远程 → {new_url}')
+                    else:
+                        failed += 1
+                        print(f'[迁移] stack 下载失败: {url[:120]}')
+
+    if migrated or failed:
         kv_set('sessions', sessions)
-        print(f'[迁移] 共迁移 {migrated} 张现有图片到 SQLite')
+        print(f'[迁移] 共迁移 {migrated} 张现有图片到 SQLite，{failed} 张下载失败（外部链接可能已过期）')
 
 _migrate_existing_images()
 

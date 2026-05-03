@@ -158,6 +158,90 @@ export async function resolveIdbUrl(url) {
   return resolveBackendUrl(url);
 }
 
+function isExternalImageUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  if (url.startsWith('data:') || url.startsWith('blob:')) return false;
+  if (url.startsWith('/api/images/')) return false;
+  if (/^https?:\/\//i.test(url)) {
+    if (url.includes('127.0.0.1') || url.includes('localhost')) return false;
+    if (url.includes('/api/images/')) return false;
+    return true;
+  }
+  return false;
+}
+
+// 对外部图片 URL 进行修复：尝试下载到后端存储
+// 成功返回本地 URL，失败返回原 URL
+async function healExternalImageUrl(url) {
+  if (!isExternalImageUrl(url)) return url;
+  try {
+    const base = getStorageBase();
+    const res = await fetch(base + '/api/images/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      console.log('[修复] 外部图片已导入: %s → %s', url.slice(0, 80), data.url);
+      return data.url;
+    }
+  } catch (e) {
+    console.warn('[修复] 外部图片导入失败: %s, 错误: %s', url.slice(0, 80), e.message);
+  }
+  return url;
+}
+
+// 批量修复 session 中的外部图片 URL，成功修复的会更新 session 数据
+async function healSessionExternalUrls(session) {
+  if (!session) return;
+  let healedCount = 0;
+  const urlsToHeal = [];
+
+  // 收集 messages 中的外部 URL
+  for (const msg of (session.messages || [])) {
+    if (msg.role === 'assistant' && isExternalImageUrl(msg.imageUrl)) {
+      urlsToHeal.push({ target: msg, key: 'imageUrl', url: msg.imageUrl });
+    }
+  }
+  // 收集 droppedImages 中的外部 URL
+  for (const img of (session.droppedImages || [])) {
+    if (isExternalImageUrl(img.imageUrl)) {
+      urlsToHeal.push({ target: img, key: 'imageUrl', url: img.imageUrl });
+    }
+  }
+  // 收集 stacks 中子项的外部 URL
+  for (const stack of (session.stacks || [])) {
+    for (const item of (stack.items || [])) {
+      if (isExternalImageUrl(item.imageUrl)) {
+        urlsToHeal.push({ target: item, key: 'imageUrl', url: item.imageUrl });
+      }
+    }
+  }
+
+  if (urlsToHeal.length === 0) return;
+
+  console.log('[修复] 发现 %d 个外部图片 URL，开始修复...', urlsToHeal.length);
+  const results = await Promise.allSettled(
+    urlsToHeal.map(async (entry) => {
+      const newUrl = await healExternalImageUrl(entry.url);
+      if (newUrl !== entry.url) {
+        entry.target[entry.key] = newUrl;
+        return true;
+      }
+      return false;
+    })
+  );
+  healedCount = results.filter(r => r.status === 'fulfilled' && r.value).length;
+  if (healedCount > 0) {
+    saveSessions();
+    console.log('[修复] 成功修复 %d/%d 个外部图片 URL', healedCount, urlsToHeal.length);
+  }
+  if (healedCount < urlsToHeal.length) {
+    console.warn('[修复] %d 个外部图片 URL 修复失败（可能已过期）', urlsToHeal.length - healedCount);
+  }
+}
+
 function _cleanupResolvedUrls() { }
 
 const listeners = {};
@@ -605,6 +689,15 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
     }
   }
 
+  // 尝试修复外部图片 URL（下载到后端存储）
+  if (isExternalImageUrl(imageUrl)) {
+    const healed = await healExternalImageUrl(imageUrl);
+    if (healed !== imageUrl) {
+      console.log('[addResultToCanvas] 已修复外部 URL: %s → %s', imageUrl.slice(0, 80), healed);
+      imageUrl = healed;
+    }
+  }
+
   session.messages = session.messages || [];
   const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
   const msg = {
@@ -806,6 +899,9 @@ export async function rebuildCanvasFromSession() {
     '消息数:', session.messages?.length || 0,
     'droppedImages:', session.droppedImages?.length || 0,
     'stacks:', session.stacks?.length || 0);
+
+  // 尝试修复外部图片 URL（下载到后端存储）
+  await healSessionExternalUrls(session);
 
   const items = [];
   let lastUserMsg = null;
