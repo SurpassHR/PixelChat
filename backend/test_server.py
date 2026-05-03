@@ -61,6 +61,21 @@ class FakeStream:
         pass
 
 
+class ImageStorageTest(unittest.TestCase):
+    def test_remote_image_download_failure_does_not_return_external_url(self):
+        with patch.object(server, '_extract_image_url', return_value='https://example.com/out.png'), \
+             patch.object(server, '_download_and_store_image', return_value=''):
+            with self.assertRaises(server.ImageStorageError):
+                server._store_image_from_response({}, 'https://api.example.test')
+
+    def test_localhost_api_image_url_is_normalized(self):
+        with patch.object(server, '_extract_image_url', return_value='http://127.0.0.1:5001/api/images/out'):
+            self.assertEqual(
+                server._store_image_from_response({}, 'https://api.example.test'),
+                '/api/images/out'
+            )
+
+
 class GenerateRequestModelTest(unittest.TestCase):
     def setUp(self):
         self.task_id = 'task-test'
@@ -78,6 +93,27 @@ class GenerateRequestModelTest(unittest.TestCase):
             'created_at': 1,
             'updated_at': 1,
         }
+
+    def test_image_storage_failure_marks_task_failed(self):
+        settings = {
+            'providers': {
+                'custom': {
+                    'base_url': 'https://api.example.test/v1/',
+                    'api_key': 'sk-test',
+                }
+            }
+        }
+
+        with patch.dict(server._tasks, {self.task_id: self.task}, clear=True), \
+             patch.object(server, 'kv_get', return_value=settings), \
+             patch.object(server.urllib.request, 'urlopen', return_value=FakeStream()), \
+             patch.object(server, '_save_task'), \
+             patch.object(server, '_store_image_from_response', side_effect=server.ImageStorageError('生成图片下载或存入数据库失败')):
+            server._execute_task(self.task_id)
+
+        self.assertEqual(self.task['status'], 'failed')
+        self.assertEqual(self.task['image_url'], '')
+        self.assertEqual(self.task['error'], '生成图片下载或存入数据库失败')
 
     def test_external_generation_request_forwards_selected_model(self):
         captured = {}

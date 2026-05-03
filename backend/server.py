@@ -410,8 +410,22 @@ def _save_task(task):
     conn.commit()
     conn.close()
 
+class ImageStorageError(Exception):
+    pass
+
+
+def _normalize_local_image_url(url):
+    if not url or not isinstance(url, str):
+        return ''
+    if url.startswith('/api/images/'):
+        return url
+    if ('127.0.0.1' in url or 'localhost' in url) and '/api/images/' in url:
+        return url[url.find('/api/images/'):]
+    return ''
+
+
 def _store_image_blob(b64_data, mime_type='image/png'):
-    """Store a base64-encoded image blob in SQLite and return a local URL."""
+    """将 base64 图片写入 SQLite 并返回本地 URL。"""
     image_id = uuid.uuid4().hex
     conn = get_db()
     conn.execute(
@@ -423,7 +437,7 @@ def _store_image_blob(b64_data, mime_type='image/png'):
     return f'/api/images/{image_id}'
 
 def _download_and_store_image(url):
-    """Download a remote image and store it locally for persistent access."""
+    """下载远程图片并存入本地数据库。"""
     try:
         req = urllib.request.Request(url, headers={
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -443,38 +457,39 @@ def _download_and_store_image(url):
         return ''
 
 def _store_image_from_response(resp_data, base_url):
-    """Extract image from API response in any format and store in SQLite.
-
-    Handles: remote URL → download+store, data: URL → store raw,
-    b64_json field → store raw. Returns local /api/images/<id> URL.
-    下载外部 URL 失败时保留原始 URL 作为降级，前端可后续通过 /api/images/import 修复。
-    """
-    # Try URL-based extraction first
+    """从 API 响应提取图片并存入 SQLite。"""
     url = _extract_image_url(resp_data, base_url)
 
     if url:
+        local_url = _normalize_local_image_url(url)
+        if local_url:
+            return local_url
+
         if url.startswith('data:'):
-            # Inline data URL — store the base64 payload directly
             mime = 'image/png'
             header = url.split(',')[0] if ',' in url else ''
             if ';' in header:
                 mime = header.split(';')[0].split(':')[1] or mime
             raw = url.split(',', 1)[1] if ',' in url else url
-            return _store_image_blob(raw, mime)
+            local = _store_image_blob(raw, mime)
+            if local.startswith('/api/images/'):
+                return local
+            raise ImageStorageError('生成图片未能存入数据库')
 
         if url.startswith('http'):
-            if '127.0.0.1' in url or 'localhost' in url:
-                return url  # Already a local URL
             local = _download_and_store_image(url)
-            return local if local else url  # 下载失败时保留原始 URL 作为降级
+            if local and local.startswith('/api/images/'):
+                return local
+            raise ImageStorageError('生成图片下载或存入数据库失败')
 
         if url.startswith('/'):
-            local = _download_and_store_image(base_url + url)
-            return local if local else (base_url + url)  # 下载失败时保留原始 URL
+            local = _download_and_store_image(base_url.rstrip('/') + url)
+            if local and local.startswith('/api/images/'):
+                return local
+            raise ImageStorageError('生成图片下载或存入数据库失败')
 
-        return url  # some other format, use as-is
+        raise ImageStorageError('不支持的生成图片 URL 格式')
 
-    # No URL found — check for b64_json field (OpenAI DALL-E / image gen endpoints)
     if isinstance(resp_data, dict):
         dlist = resp_data.get('data')
         if isinstance(dlist, list):
@@ -483,7 +498,10 @@ def _store_image_from_response(resp_data, base_url):
                     b64 = entry.get('b64_json', '')
                     if b64:
                         mime = entry.get('mime_type', 'image/png')
-                        return _store_image_blob(b64, mime)
+                        local = _store_image_blob(b64, mime)
+                        if local.startswith('/api/images/'):
+                            return local
+                        raise ImageStorageError('生成图片未能存入数据库')
 
     return ''
 
@@ -872,7 +890,21 @@ def _execute_task(task_id):
                     }
                     task['response_body'] = json.dumps(resp_data, ensure_ascii=False)[:10000]
     
-                image_url = _store_image_from_response(resp_data, base)
+                try:
+                    image_url = _store_image_from_response(resp_data, base)
+                except ImageStorageError as e:
+                    with _tasks_lock:
+                        if task_id not in _tasks:
+                            return
+                        task = _tasks[task_id]
+                        if task['status'] == 'cancelled':
+                            return
+                        task['status'] = 'failed'
+                        task['error'] = str(e)
+                        task['image_url'] = ''
+                        task['updated_at'] = time.time()
+                        _save_task(task)
+                    return
 
                 with _tasks_lock:
                     if task_id not in _tasks:
@@ -881,22 +913,22 @@ def _execute_task(task_id):
                     if task['status'] == 'cancelled':
                         return
 
-                    if not image_url and final_content.strip():
-                        # 检测 final_content 是否为错误/拒绝消息（不含图片）
+                    if image_url and image_url.startswith('/api/images/'):
+                        task['status'] = 'completed'
+                        task['image_url'] = image_url
+                    elif final_content.strip():
                         has_image = bool(
                             re_module.search(r'!\[.*?\]\(.*?\)', final_content) or
                             re_module.search(r'https?://\S+\.(?:jpg|jpeg|png|gif|webp)', final_content) or
                             'data:image/' in final_content
                         )
-                        if not has_image:
-                            task['status'] = 'failed'
-                            task['error'] = final_content.strip()[:500]
-                        else:
-                            task['status'] = 'completed'
-                            task['image_url'] = ''
+                        task['status'] = 'failed'
+                        task['image_url'] = ''
+                        task['error'] = '生成图片下载或存入数据库失败' if has_image else final_content.strip()[:500]
                     else:
-                        task['status'] = 'completed'
-                        task['image_url'] = image_url or ''
+                        task['status'] = 'failed'
+                        task['image_url'] = ''
+                        task['error'] = '响应中未找到图片'
 
                     task['updated_at'] = time.time()
                     _save_task(task)
@@ -1051,119 +1083,6 @@ _init_tasks_table()
 _load_tasks()
 _queue_thread = threading.Thread(target=_queue_worker, daemon=True)
 _queue_thread.start()
-
-# --- Migrate existing images in session data into SQLite ---
-
-def _migrate_existing_images():
-    """Scan existing session data and download remote/data: image URLs into SQLite.
-    同时迁移 messages、droppedImages 和 stacks 中的图片 URL。
-    """
-    sessions = kv_get('sessions', {})
-    if not sessions or not isinstance(sessions, dict):
-        return
-
-    migrated = 0
-    failed = 0
-    for sid, session in sessions.items():
-        # 迁移 messages 中的 assistant 图片
-        for msg in (session.get('messages') or []):
-            if msg.get('role') != 'assistant':
-                continue
-            url = msg.get('imageUrl', '') or ''
-            if not url:
-                continue
-
-            # Already using relative local path — skip
-            if url.startswith('/api/images/'):
-                continue
-
-            # Full localhost URL with /api/images/ → normalize to relative path
-            if ('127.0.0.1' in url or 'localhost' in url) and '/api/images/' in url:
-                idx = url.find('/api/images/')
-                msg['imageUrl'] = url[idx:]
-                migrated += 1
-                print(f'[迁移] 规范化本地URL → {url[idx:]}')
-                continue
-
-            if url.startswith('data:'):
-                mime = 'image/png'
-                header = url.split(',')[0] if ',' in url else ''
-                if ';' in header:
-                    mime = header.split(';')[0].split(':')[1] or mime
-                raw = url.split(',', 1)[1] if ',' in url else url
-                new_url = _store_image_blob(raw, mime)
-                if new_url:
-                    msg['imageUrl'] = new_url
-                    migrated += 1
-                    print(f'[迁移] 现有内联图片 → {new_url}')
-            elif url.startswith('http'):
-                new_url = _download_and_store_image(url)
-                if new_url:
-                    msg['imageUrl'] = new_url
-                    migrated += 1
-                    print(f'[迁移] 现有远程图片 → {new_url}')
-                else:
-                    failed += 1
-                    print(f'[迁移] 远程图片下载失败（URL可能已过期）: {url[:120]}')
-
-        # 迁移 droppedImages
-        for img in (session.get('droppedImages') or []):
-            url = img.get('imageUrl', '') or ''
-            if not url or url.startswith('/api/images/'):
-                continue
-            if url.startswith('data:'):
-                mime = 'image/png'
-                header = url.split(',')[0] if ',' in url else ''
-                if ';' in header:
-                    mime = header.split(';')[0].split(':')[1] or mime
-                raw = url.split(',', 1)[1] if ',' in url else url
-                new_url = _store_image_blob(raw, mime)
-                if new_url:
-                    img['imageUrl'] = new_url
-                    migrated += 1
-                    print(f'[迁移] droppedImage 内联 → {new_url}')
-            elif url.startswith('http'):
-                new_url = _download_and_store_image(url)
-                if new_url:
-                    img['imageUrl'] = new_url
-                    migrated += 1
-                    print(f'[迁移] droppedImage 远程 → {new_url}')
-                else:
-                    failed += 1
-                    print(f'[迁移] droppedImage 下载失败: {url[:120]}')
-
-        # 迁移 stacks 中子项的图片
-        for stack in (session.get('stacks') or []):
-            for item in (stack.get('items') or []):
-                url = item.get('imageUrl', '') or ''
-                if not url or url.startswith('/api/images/'):
-                    continue
-                if url.startswith('data:'):
-                    mime = 'image/png'
-                    header = url.split(',')[0] if ',' in url else ''
-                    if ';' in header:
-                        mime = header.split(';')[0].split(':')[1] or mime
-                    raw = url.split(',', 1)[1] if ',' in url else url
-                    new_url = _store_image_blob(raw, mime)
-                    if new_url:
-                        item['imageUrl'] = new_url
-                        migrated += 1
-                        print(f'[迁移] stack 内联 → {new_url}')
-                elif url.startswith('http'):
-                    new_url = _download_and_store_image(url)
-                    if new_url:
-                        item['imageUrl'] = new_url
-                        migrated += 1
-                        print(f'[迁移] stack 远程 → {new_url}')
-                    else:
-                        failed += 1
-                        print(f'[迁移] stack 下载失败: {url[:120]}')
-
-    if migrated or failed:
-        kv_set('sessions', sessions)
-        print(f'[迁移] 共迁移 {migrated} 张现有图片到 SQLite，{failed} 张下载失败（外部链接可能已过期）')
-
-_migrate_existing_images()
 
 # --- Task API endpoints ---
 
