@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getState, getModelType, resolveModelToFamily, getModelId, selectFamilyRatioResolution, MODEL_FAMILIES } from '../store.js';
+import { getState, getModelType, resolveModelToFamily, getModelId, selectFamilyRatioResolution, MODEL_FAMILIES, supportsAspectRatioSelection } from '../store.js';
 
 // Mock fetch 和 localStorage
 global.fetch = vi.fn();
@@ -42,6 +42,20 @@ describe('getModelType - 模型类型检测', () => {
   });
 });
 
+describe('supportsAspectRatioSelection - 比例选择能力判断', () => {
+  it('应对支持多比例的图片模型启用比例选择', () => {
+    expect(supportsAspectRatioSelection('gpt-image-2')).toBe(true);
+    expect(supportsAspectRatioSelection('gemini-3.0-pro-image-square')).toBe(true);
+    expect(supportsAspectRatioSelection('imagen-4.0-generate-preview-landscape')).toBe(true);
+  });
+
+  it('应对普通或未知模型禁用比例选择', () => {
+    expect(supportsAspectRatioSelection('claude-sonnet-4-6')).toBe(false);
+    expect(supportsAspectRatioSelection('some-unknown-model')).toBe(false);
+    expect(supportsAspectRatioSelection('')).toBe(false);
+  });
+});
+
 describe('resolveModelToFamily - 反向解析 Model ID', () => {
   it('应正确解析 gpt-image-2', () => {
     const result = resolveModelToFamily('gpt-image-2');
@@ -49,6 +63,11 @@ describe('resolveModelToFamily - 反向解析 Model ID', () => {
     expect(result.familyId).toBe('gpt-image');
     expect(result.ratio).toBe('1:1');
     expect(result.resolution).toBe('1K');
+  });
+
+  it('无法从同一 GPT 模型 ID 唯一反推用户选择的比例', () => {
+    expect(getModelId('gpt-image', '16:9', '1K')).toBe('gpt-image-2');
+    expect(getModelId('gpt-image', '3:4', '1K')).toBe('gpt-image-2');
   });
 
   it('应正确解析 gemini 1K 模型（无分辨率后缀）', () => {

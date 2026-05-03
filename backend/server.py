@@ -546,6 +546,15 @@ def _extract_image_url(data, base_url):
 
     return ''
 
+def _prompt_with_aspect_ratio(prompt, aspect_ratio):
+    if not aspect_ratio:
+        return prompt
+    ar_suffix = f'--ar {aspect_ratio}'
+    if re_module.search(r'(^|\s)--ar\s+' + re_module.escape(aspect_ratio) + r'(\s|$)', prompt):
+        return prompt
+    return f'{prompt.rstrip()} {ar_suffix}'
+
+
 def _execute_task(task_id):
     """Execute a generation task with concurrency limiting, timeout, and retry."""
     with _concurrency_sem:
@@ -602,9 +611,10 @@ def _execute_task(task_id):
                         '16:9': '1820x1024',
                     }
                     image_size = size_map.get(task.get('aspectRatio', '1:1'), '1024x1024')
+                    prompt = _prompt_with_aspect_ratio(task['prompt'], task.get('aspectRatio'))
                     body = {
                         'model': task['model'],
-                        'prompt': task['prompt'],
+                        'prompt': prompt,
                         'n': 1,
                         'size': image_size
                     }

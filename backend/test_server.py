@@ -148,6 +148,59 @@ class GenerateRequestModelTest(unittest.TestCase):
         self.assertEqual(captured['body']['n'], 1)
         self.assertIn('size', captured['body'])
 
+    def test_gpt_image_prompt_appends_selected_aspect_ratio(self):
+        captured = {}
+        self.task['aspectRatio'] = '16:9'
+
+        def fake_urlopen(req, timeout=None):
+            captured['body'] = json.loads(req.data.decode('utf-8'))
+            return FakeStream()
+
+        settings = {
+            'providers': {
+                'custom': {
+                    'base_url': 'https://api.example.test/v1/',
+                    'api_key': 'sk-test',
+                }
+            }
+        }
+
+        with patch.dict(server._tasks, {self.task_id: self.task}, clear=True), \
+             patch.object(server, 'kv_get', return_value=settings), \
+             patch.object(server.urllib.request, 'urlopen', side_effect=fake_urlopen), \
+             patch.object(server, '_save_task'), \
+             patch.object(server, '_store_image_from_response', return_value='/api/images/out.png'):
+            server._execute_task(self.task_id)
+
+        self.assertEqual(captured['body']['prompt'], '画一只猫 --ar 16:9')
+
+    def test_gpt_image_prompt_does_not_duplicate_same_aspect_ratio(self):
+        captured = {}
+        self.task['prompt'] = '画一只猫 --ar 3:4'
+        self.task['aspectRatio'] = '3:4'
+
+        def fake_urlopen(req, timeout=None):
+            captured['body'] = json.loads(req.data.decode('utf-8'))
+            return FakeStream()
+
+        settings = {
+            'providers': {
+                'custom': {
+                    'base_url': 'https://api.example.test/v1/',
+                    'api_key': 'sk-test',
+                }
+            }
+        }
+
+        with patch.dict(server._tasks, {self.task_id: self.task}, clear=True), \
+             patch.object(server, 'kv_get', return_value=settings), \
+             patch.object(server.urllib.request, 'urlopen', side_effect=fake_urlopen), \
+             patch.object(server, '_save_task'), \
+             patch.object(server, '_store_image_from_response', return_value='/api/images/out.png'):
+            server._execute_task(self.task_id)
+
+        self.assertEqual(captured['body']['prompt'], '画一只猫 --ar 3:4')
+
 
 if __name__ == '__main__':
     unittest.main()

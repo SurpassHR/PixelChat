@@ -116,6 +116,10 @@ export function getModelType(modelId) {
   return null;
 }
 
+export function supportsAspectRatioSelection(modelId) {
+  return ['gpt', 'gemini', 'imagen'].includes(getModelType(modelId));
+}
+
 // 反向解析 model ID 到 family/ratio/resolution
 export function resolveModelToFamily(modelId) {
   if (!modelId) return null;

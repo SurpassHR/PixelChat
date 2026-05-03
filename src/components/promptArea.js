@@ -1,4 +1,4 @@
-import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask, MODEL_FAMILIES, getModelId, getModelType, resolveModelToFamily, selectFamilyRatioResolution, saveCurrentSessionDraft, resolveBackendUrl } from '../store.js';
+import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask, MODEL_FAMILIES, getModelId, getModelType, supportsAspectRatioSelection, resolveModelToFamily, selectFamilyRatioResolution, saveCurrentSessionDraft, resolveBackendUrl } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
 import { selectModel, fetchModels } from './modelSelector.js';
@@ -219,7 +219,13 @@ function syncSettingsState() {
   const tagMult = $('#modelTagMult');
   if (tagMult) tagMult.textContent = '×' + batchSize;
   const tagRatio = $('#modelTagRatio');
-  if (tagRatio) tagRatio.textContent = aspectRatio;
+  const ratioSupported = supportsAspectRatioSelection(selectedModelId);
+  if (tagRatio) {
+    tagRatio.textContent = aspectRatio;
+    tagRatio.style.display = ratioSupported ? '' : 'none';
+  }
+  const tagSep = document.querySelector('.model-tag-sep');
+  if (tagSep) tagSep.style.display = ratioSupported ? '' : 'none';
 
   // 比例按钮
   $$('.ratio-btn').forEach(btn => {
@@ -426,6 +432,9 @@ export function initPromptArea() {
         const ratio = btn.dataset.ratio;
         btn.style.display = (ratio === '9:16' || ratio === '16:9') ? '' : 'none';
       });
+    } else {
+      if (ratioSection) ratioSection.style.display = 'none';
+      if (resolutionRow) resolutionRow.style.display = 'none';
     }
 
     syncSettingsState();
