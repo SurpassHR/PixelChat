@@ -1,31 +1,17 @@
-import { getState, setState, subscribe, addDroppedImage, cancelGeneration, createStackFromItems, addToStack, removeFromStack, mergeStacks, removeCanvasItemById, forceSaveSessions } from '../store.js';
+import { getState, setState, subscribe, addDroppedImage, cancelGeneration, createStackFromItems, addToStack, removeFromStack, mergeStacks, removeCanvasItemById } from '../store.js';
 import { $$ } from '../domHelpers.js';
 import { openImageDetail } from './modal.js';
 import { showToast } from '../toast.js';
 
 // 图片模糊状态 (Ctrl+H / Cmd+H 切换)
-let _imagesBlurred = false;
-
 function applyImageBlurState(value) {
-  _imagesBlurred = !!value;
-  surface.classList.toggle('images-blurred', _imagesBlurred);
-  document.body.classList.toggle('images-blurred', _imagesBlurred);
-}
-
-function getCurrentSession() {
-  const { sessions, currentSessionId } = getState();
-  return sessions[currentSessionId] || null;
+  const v = !!value;
+  surface.classList.toggle('images-blurred', v);
+  document.body.classList.toggle('images-blurred', v);
 }
 
 function restoreImageBlurState() {
-  applyImageBlurState(!!getCurrentSession()?.imagesBlurred);
-}
-
-async function persistImageBlurState() {
-  const session = getCurrentSession();
-  if (!session) return;
-  session.imagesBlurred = _imagesBlurred;
-  await forceSaveSessions();
+  applyImageBlurState(!!getState().imagesBlurred);
 }
 
 // 展开状态
@@ -992,9 +978,9 @@ export function initCanvas() {
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       e.preventDefault();
-      applyImageBlurState(!_imagesBlurred);
-      persistImageBlurState();
-      setState({ statusText: _imagesBlurred ? '图片已隐藏 (Ctrl+H 恢复)' : '' });
+      const newValue = !getState().imagesBlurred;
+      applyImageBlurState(newValue);
+      setState({ imagesBlurred: newValue, statusText: newValue ? '图片已隐藏 (Ctrl+H 恢复)' : '' });
     }
   });
 

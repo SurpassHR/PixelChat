@@ -24,7 +24,8 @@ const state = {
   retryCount: 2,
   aspectRatio: '1:1',
   selectedFamilyId: '',
-  selectedResolution: '1K'
+  selectedResolution: '1K',
+  imagesBlurred: false
 };
 
 // --------------------------------------------------------------
@@ -252,7 +253,7 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
-  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'selectedModelKey' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'retryCount' in partial || 'aspectRatio' in partial || 'selectedFamilyId' in partial || 'selectedResolution' in partial) {
+  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'selectedModelKey' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'retryCount' in partial || 'aspectRatio' in partial || 'selectedFamilyId' in partial || 'selectedResolution' in partial || 'imagesBlurred' in partial) {
     saveSettings();
   }
   // 当 refImages 或 promptDraft 变化时，自动保存当前会话草稿
@@ -394,7 +395,8 @@ function debouncedBackendSync() {
         retryCount: state.retryCount,
         aspectRatio: state.aspectRatio,
         selectedFamilyId: state.selectedFamilyId,
-        selectedResolution: state.selectedResolution
+        selectedResolution: state.selectedResolution,
+        imagesBlurred: state.imagesBlurred
       });
     } catch { }
   }, 200);
@@ -1665,6 +1667,7 @@ export async function initStore() {
     if (settings.aspectRatio !== undefined) state.aspectRatio = settings.aspectRatio;
     if (settings.selectedFamilyId !== undefined) state.selectedFamilyId = settings.selectedFamilyId;
     if (settings.selectedResolution !== undefined) state.selectedResolution = settings.selectedResolution;
+    if (settings.imagesBlurred !== undefined) state.imagesBlurred = settings.imagesBlurred;
   }
   
   // 恢复当前会话 ID
