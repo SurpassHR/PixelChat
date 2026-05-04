@@ -751,7 +751,9 @@ export function initPromptArea() {
       renderLineHighlight: 'line',
       scrollBeyondLastLine: false,
       wordWrap: 'on',
-      automaticLayout: false,
+      wrappingIndent: 'same',
+      wrappingStrategy: 'advanced',
+      automaticLayout: true,
       overviewRulerLanes: 0,
       hideCursorInOverviewRuler: true,
       overviewRulerBorder: false,
@@ -792,6 +794,7 @@ export function initPromptArea() {
         saveCurrentSessionDraft();
       }
     });
+
   }
 
   function updateInlineEditorHeight(expanded) {

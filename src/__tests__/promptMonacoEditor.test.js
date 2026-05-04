@@ -131,3 +131,25 @@ describe('内联 Monaco 编辑器 — JS 展开/收起逻辑', () => {
     expect(rawJs).toMatch(/layout\s*\(\s*\{\s*width\s*:\s*container\.clientWidth\s*,\s*height\s*:\s*height\s*\}\s*\)/);
   });
 });
+
+describe('内联 Monaco 编辑器 — 自动折行配置', () => {
+  it('wordWrap 选项设为 on', () => {
+    expect(rawJs).toMatch(/wordWrap\s*:\s*'on'/);
+  });
+
+  it('wrappingIndent 设为 same', () => {
+    expect(rawJs).toMatch(/wrappingIndent\s*:\s*'same'/);
+  });
+
+  it('automaticLayout 设为 true 以自动响应容器尺寸变化', () => {
+    expect(rawJs).toMatch(/automaticLayout\s*:\s*true/);
+  });
+
+  it('wrappingStrategy 设为 advanced 以正确处理 CJK 换行', () => {
+    expect(rawJs).toMatch(/wrappingStrategy\s*:\s*'advanced'/);
+  });
+
+  it('水平滚动条设置为最小尺寸避免水平滚动', () => {
+    expect(rawJs).toMatch(/horizontalScrollbarSize\s*:\s*4/);
+  });
+});
