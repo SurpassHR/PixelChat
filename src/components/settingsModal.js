@@ -1,4 +1,4 @@
-import { getState, setState, subscribe, addProvider, removeProvider, updateProviderModels, toggleModelEnabled, updateProviderConfig, batchToggleModelsEnabled } from '../store.js';
+import { getState, setState, subscribe, addProvider, removeProvider, updateProviderModels, toggleModelEnabled, updateProviderConfig, batchToggleModelsEnabled, buildModelKey } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
 import { selectModel } from './modelSelector.js';
 import { fetchModels as apiFetchModels } from '../api.js';
@@ -140,7 +140,7 @@ function renderModelTable(providerName) {
       </td>
       <td class="model-name">${escapeHtml(m.id)}</td>
       <td class="model-action">
-        <button class="settings-btn settings-btn-sm model-select-btn" data-model-id="${escapeHtml(m.id)}">选择</button>
+        <button class="settings-btn settings-btn-sm model-select-btn" data-model-id="${escapeHtml(m.id)}" data-model-key="${escapeHtml(buildModelKey(providerName, m.id))}">选择</button>
       </td>
     </tr>`;
   });
@@ -155,19 +155,19 @@ function renderModelTable(providerName) {
 
   tbody.querySelectorAll('.model-select-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      selectModel(btn.dataset.modelId);
-      syncSelectBtnStates(tbody, btn.dataset.modelId);
+      selectModel(btn.dataset.modelKey);
+      syncSelectBtnStates(tbody, btn.dataset.modelKey);
       setState({ statusText: `已选择模型: ${btn.dataset.modelId}` });
     });
   });
 
-  const { selectedModelId } = getState();
-  syncSelectBtnStates(tbody, selectedModelId);
+  const { selectedModelKey } = getState();
+  syncSelectBtnStates(tbody, selectedModelKey);
 }
 
-function syncSelectBtnStates(tbody, selectedId) {
+function syncSelectBtnStates(tbody, selectedKey) {
   tbody.querySelectorAll('.model-select-btn').forEach(btn => {
-    if (btn.dataset.modelId === selectedId) {
+    if (btn.dataset.modelKey === selectedKey) {
       btn.textContent = '✓ 已选';
       btn.style.borderColor = 'var(--accent-dim)';
       btn.style.color = 'var(--accent)';
@@ -386,11 +386,11 @@ export function initSettingsModal() {
     }
   });
 
-  subscribe('selectedModelId', () => {
+  subscribe('selectedModelKey', () => {
     if (overlay.style.display !== 'none' && _activeProvider) {
       const tbody = $('#settingsModelList');
-      const { selectedModelId } = getState();
-      syncSelectBtnStates(tbody, selectedModelId);
+      const { selectedModelKey } = getState();
+      syncSelectBtnStates(tbody, selectedModelKey);
     }
   });
 }

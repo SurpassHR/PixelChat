@@ -11,6 +11,12 @@ global.localStorage = {
 
 describe('多选删除持久化测试', () => {
   beforeEach(async () => {
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ url: '/api/images/test-image' }),
+      text: async () => JSON.stringify({}),
+    });
+
     // 重置状态
     const state = getState();
     state.sessions = {};

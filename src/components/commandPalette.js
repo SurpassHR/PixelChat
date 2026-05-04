@@ -1,4 +1,4 @@
-import { getState, setState, subscribe } from '../store.js';
+import { getState, setState, subscribe, getModelKey } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { selectModel, fetchModels } from './modelSelector.js';
 
@@ -42,7 +42,7 @@ function renderCommands(filtered) {
 
 function renderModelList(filtered) {
   _mode = 'models';
-  const { selectedModelId } = getState();
+  const { selectedModelKey } = getState();
 
   const items = [
     `<div class="cmd-item" data-cmd="__back">
@@ -61,8 +61,9 @@ function renderModelList(filtered) {
     }
   } else {
     filtered.forEach(m => {
-      const active = m.id === selectedModelId;
-      items.push(`<div class="cmd-item ${active ? 'highlighted' : ''}" data-cmd="__model" data-mid="${m.id}">
+      const modelKey = getModelKey(m);
+      const active = modelKey === selectedModelKey;
+      items.push(`<div class="cmd-item ${active ? 'highlighted' : ''}" data-cmd="__model" data-mid="${escapeHtml(m.id)}" data-model-key="${escapeHtml(modelKey)}">
         <div class="cmd-icon">${active ? '✓' : '🤖'}</div>
         <div class="cmd-label">${escapeHtml(m.id)}</div>
         <div class="cmd-hint">${m.owner ? escapeHtml(m.owner) : '选择此模型'}</div>
@@ -115,7 +116,7 @@ function executeHighlighted() {
   if (_mode === 'models') {
     if (cmd === '__back') enterCommandMode();
     else if (cmd === '__refresh') refreshAndShowModels();
-    else if (cmd === '__model') { selectModel(item.dataset.mid); close(); }
+    else if (cmd === '__model') { selectModel(item.dataset.modelKey); close(); }
     return;
   }
 
@@ -234,7 +235,7 @@ export function initCommandPalette() {
     if (_mode === 'models') {
       if (cmd === '__back') enterCommandMode();
       else if (cmd === '__refresh') refreshAndShowModels();
-      else if (cmd === '__model') { selectModel(item.dataset.mid); close(); }
+      else if (cmd === '__model') { selectModel(item.dataset.modelKey); close(); }
       return;
     }
 

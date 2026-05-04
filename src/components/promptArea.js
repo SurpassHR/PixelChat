@@ -1,4 +1,4 @@
-import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask, MODEL_FAMILIES, getModelId, getModelType, supportsAspectRatioSelection, resolveModelToFamily, selectFamilyRatioResolution, saveCurrentSessionDraft, resolveBackendUrl } from '../store.js';
+import { getState, setState, subscribe, appendMessage, addDroppedImage, addMaterial, addGeneratingPlaceholder, submitTask, MODEL_FAMILIES, getModelId, getModelKey, findModelByKey, getModelType, supportsAspectRatioSelection, resolveModelToFamily, selectFamilyRatioResolution, saveCurrentSessionDraft, resolveBackendUrl } from '../store.js';
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
 import { selectModel, fetchModels } from './modelSelector.js';
@@ -443,7 +443,7 @@ export function initPromptArea() {
   // 渲染自定义模型列表（带分组、搜索）
   function renderCustomModelList(filterText = '') {
     if (!customModelList) return;
-    const { models, selectedModelId } = getState();
+    const { models, selectedModelKey } = getState();
     if (!models || models.length === 0) {
       customModelList.innerHTML = '<div class="model-dropdown-empty">暂无可用模型</div>';
       return;
@@ -470,9 +470,10 @@ export function initPromptArea() {
       hasResults = true;
       html += `<div class="model-dropdown-group-label">${escapeHtml(provider)}</div>`;
       filteredModels.forEach(model => {
-        const isSelected = (model.id === selectedModelId);
+        const modelKey = getModelKey(model);
+        const isSelected = (modelKey === selectedModelKey);
         html += `
-          <div class="model-dropdown-item ${isSelected ? 'highlighted' : ''}" data-mid="${escapeHtml(model.id)}">
+          <div class="model-dropdown-item ${isSelected ? 'highlighted' : ''}" data-mid="${escapeHtml(model.id)}" data-model-key="${escapeHtml(modelKey)}">
             <span class="md-name">${escapeHtml(model.id)}</span>
             <span class="md-owner">${escapeHtml(model.provider || '')}</span>
           </div>
@@ -492,19 +493,20 @@ export function initPromptArea() {
     customModelList.querySelectorAll('.model-dropdown-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
-        const modelId = item.getAttribute('data-mid');
-        if (!modelId) return;
+        const modelKey = item.getAttribute('data-model-key');
+        if (!modelKey) return;
         const { models } = getState();
-        const selectedModel = models.find(m => m.id === modelId);
+        const selectedModel = findModelByKey(models, modelKey);
         if (selectedModel) {
           setState({
-            selectedModelId: modelId,
-            selectedProvider: selectedModel.provider
+            selectedModelId: selectedModel.id,
+            selectedProvider: selectedModel.provider,
+            selectedModelKey: modelKey
           });
           // 更新触发按钮显示文字
           if (customModelTrigger) {
             const nameSpan = customModelTrigger.querySelector('.trigger-name');
-            if (nameSpan) nameSpan.textContent = modelId;
+            if (nameSpan) nameSpan.textContent = selectedModel.id;
           }
         }
         closeDropdown();
@@ -594,6 +596,11 @@ export function initPromptArea() {
     const { selectedModelId } = getState();
     if (selectedModelId) {
       renderConfigPanelByModelType(selectedModelId);
+    }
+  });
+  subscribe('selectedModelKey', () => {
+    if (isDropdownOpen) {
+      renderCustomModelList(customModelSearch ? customModelSearch.value : '');
     }
   });
 

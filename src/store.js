@@ -13,6 +13,7 @@ const state = {
   models: [],
   selectedModelId: '',
   selectedProvider: '',
+  selectedModelKey: '',
   providers: {},
   materials: [],               // 平面素材列表，每个素材包含 id, name, dataUrl, dataHash, addedAt, category, type
   materialStacks: [],          // 堆叠组列表，每个组包含 id, name, category, children (素材 id 数组), thumbnail
@@ -91,18 +92,16 @@ export function getAvailableFamilies() {
 export function selectFamilyRatioResolution(familyId, ratio, resolution) {
   const modelId = getModelId(familyId, ratio, resolution);
   if (!modelId) return false;
+  const { models, selectedProvider } = state;
+  const model = models.find(m => m.id === modelId && m.provider === selectedProvider) || models.find(m => m.id === modelId);
   setState({
     selectedFamilyId: familyId,
     aspectRatio: ratio,
     selectedResolution: resolution,
-    selectedModelId: modelId
+    selectedModelId: modelId,
+    selectedProvider: model?.provider || selectedProvider,
+    selectedModelKey: model ? getModelKey(model) : buildModelKey(selectedProvider, modelId)
   });
-  // Auto-detect provider from available models
-  const { models } = state;
-  const model = models.find(m => m.id === modelId);
-  if (model && model.provider) {
-    setState({ selectedProvider: model.provider });
-  }
   return true;
 }
 
@@ -206,6 +205,19 @@ const _abortControllers = {};
 
 export function getState() { return state; }
 
+export function buildModelKey(provider, modelId) {
+  return provider && modelId ? `${provider}::${modelId}` : '';
+}
+
+export function getModelKey(model) {
+  return model?.key || buildModelKey(model?.provider || model?.owner, model?.id);
+}
+
+export function findModelByKey(models, key) {
+  if (!key) return null;
+  return (models || []).find(model => getModelKey(model) === key) || null;
+}
+
 export function registerAbort(placeholderId, controller) {
   _abortControllers[placeholderId] = controller;
 }
@@ -239,7 +251,7 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
-  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'aspectRatio' in partial || 'selectedFamilyId' in partial || 'selectedResolution' in partial) {
+  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'selectedModelKey' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'aspectRatio' in partial || 'selectedFamilyId' in partial || 'selectedResolution' in partial) {
     saveSettings();
   }
   // 当 refImages 或 promptDraft 变化时，自动保存当前会话草稿
@@ -264,7 +276,7 @@ function rebuildModels() {
   Object.entries(state.providers).forEach(([name, provider]) => {
     (provider.models || []).forEach(m => {
       if (m.enabled !== false) {
-        allModels.push({ id: m.id, owner: m.owner || name, provider: name });
+        allModels.push({ id: m.id, owner: m.owner || name, provider: name, key: buildModelKey(name, m.id) });
       }
     });
   });
@@ -285,6 +297,7 @@ export function removeProvider(name) {
   if (state.selectedProvider === name) {
     state.selectedProvider = '';
     state.selectedModelId = '';
+    state.selectedModelKey = '';
   }
   rebuildModels();
   saveSettings();
@@ -372,6 +385,7 @@ function debouncedBackendSync() {
       await apiPost('/api/settings', {
         selectedModelId: state.selectedModelId,
         selectedProvider: state.selectedProvider,
+        selectedModelKey: state.selectedModelKey,
         providers: state.providers,
         reusePrompt: state.reusePrompt,
         reuseRef: state.reuseRef,
@@ -1637,6 +1651,10 @@ export async function initStore() {
   if (settings) {
     if (settings.selectedModelId !== undefined) state.selectedModelId = settings.selectedModelId;
     if (settings.selectedProvider !== undefined) state.selectedProvider = settings.selectedProvider;
+    if (settings.selectedModelKey !== undefined) state.selectedModelKey = settings.selectedModelKey;
+    if (!state.selectedModelKey && state.selectedProvider && state.selectedModelId) {
+      state.selectedModelKey = buildModelKey(state.selectedProvider, state.selectedModelId);
+    }
     if (settings.providers !== undefined) state.providers = settings.providers;
     if (settings.reusePrompt !== undefined) state.reusePrompt = settings.reusePrompt;
     if (settings.reuseRef !== undefined) state.reuseRef = settings.reuseRef;
@@ -1658,6 +1676,15 @@ export async function initStore() {
   }
   
   rebuildModels();
+  if (state.selectedModelKey) {
+    const selectedModel = findModelByKey(state.models, state.selectedModelKey);
+    if (selectedModel) {
+      state.selectedModelId = selectedModel.id;
+      state.selectedProvider = selectedModel.provider;
+    }
+  } else if (state.selectedProvider && state.selectedModelId) {
+    state.selectedModelKey = buildModelKey(state.selectedProvider, state.selectedModelId);
+  }
 
   // 在重建画布之前，先与后端任务列表同步 pendingTasks，
   // 确保已完成的任务直接展示结果，而不显示占位符
@@ -1680,6 +1707,7 @@ export async function initStore() {
   if (listeners['models']) listeners['models'].forEach(fn => fn());
   if (listeners['selectedModelId']) listeners['selectedModelId'].forEach(fn => fn());
   if (listeners['selectedProvider']) listeners['selectedProvider'].forEach(fn => fn());
+  if (listeners['selectedModelKey']) listeners['selectedModelKey'].forEach(fn => fn());
   if (listeners['providers']) listeners['providers'].forEach(fn => fn());
   if (listeners['refImages']) listeners['refImages'].forEach(fn => fn());
   if (listeners['promptDraft']) listeners['promptDraft'].forEach(fn => fn());

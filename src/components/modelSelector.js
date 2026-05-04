@@ -1,18 +1,21 @@
-import { getState, setState, updateProviderModels, MODEL_FAMILIES, getModelId, selectFamilyRatioResolution as _selectFamilyRatioResolution } from '../store.js';
+import { getState, setState, updateProviderModels, MODEL_FAMILIES, getModelId, getModelKey, findModelByKey, selectFamilyRatioResolution as _selectFamilyRatioResolution } from '../store.js';
 import { $, escapeHtml } from '../domHelpers.js';
 import { fetchModels as apiFetchModels } from '../api.js';
 
-function selectModel(id) {
-  setState({ selectedModelId: id });
-  const { models } = getState();
-  const model = models.find(m => m.id === id);
-  if (model && model.provider) {
-    setState({ selectedProvider: model.provider });
-  } else if (model && model.owner) {
-    setState({ selectedProvider: model.owner });
-  }
+function selectModel(idOrKey) {
+  const { models, selectedProvider } = getState();
+  const model = findModelByKey(models, idOrKey) ||
+    models.find(m => m.id === idOrKey && m.provider === selectedProvider) ||
+    models.find(m => m.id === idOrKey);
+  if (!model) return;
+  const modelKey = getModelKey(model);
+  setState({
+    selectedModelId: model.id,
+    selectedProvider: model.provider || model.owner || '',
+    selectedModelKey: modelKey
+  });
   updateModelDisplay();
-  setState({ statusText: `已选择: ${id}` });
+  setState({ statusText: `已选择: ${model.id}` });
 }
 
 export function groupModelsByProvider(models) {
@@ -58,9 +61,11 @@ async function fetchModels() {
   setState({ statusText: `模型列表已加载 (共 ${total} 个)` });
 
   // Auto-select if nothing selected or current model gone
-  const { models, selectedModelId, selectedFamilyId, aspectRatio, selectedResolution } = getState();
+  const { models, selectedModelId, selectedModelKey, selectedProvider, selectedFamilyId, aspectRatio, selectedResolution } = getState();
   if (models.length > 0) {
-    if (!selectedModelId || !models.find(m => m.id === selectedModelId)) {
+    const currentModel = findModelByKey(models, selectedModelKey) ||
+      models.find(m => m.id === selectedModelId && m.provider === selectedProvider);
+    if (!selectedModelId || !currentModel) {
       // 优先通过级联选择重新匹配
       if (selectedFamilyId && aspectRatio && selectedResolution) {
         const modelId = getModelId(selectedFamilyId, aspectRatio, selectedResolution);
@@ -68,17 +73,18 @@ async function fetchModels() {
           _selectFamilyRatioResolution(selectedFamilyId, aspectRatio, selectedResolution);
         } else {
           const gemini = models.find(m => m.id.includes('gemini'));
-          selectModel(gemini ? gemini.id : models[0].id);
+          selectModel(gemini ? getModelKey(gemini) : getModelKey(models[0]));
         }
       } else {
         const gemini = models.find(m => m.id.includes('gemini'));
-        selectModel(gemini ? gemini.id : models[0].id);
+        selectModel(gemini ? getModelKey(gemini) : getModelKey(models[0]));
       }
     } else {
-      const model = models.find(m => m.id === selectedModelId);
-      if (model && model.provider) {
-        setState({ selectedProvider: model.provider });
-      }
+      setState({
+        selectedModelId: currentModel.id,
+        selectedProvider: currentModel.provider || currentModel.owner || '',
+        selectedModelKey: getModelKey(currentModel)
+      });
       updateModelDisplay();
     }
   }
