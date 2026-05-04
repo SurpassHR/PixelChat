@@ -576,6 +576,9 @@ def _execute_task(task_id):
 
         last_error = None
 
+        settings = kv_get('settings', {})
+        retry_count = settings.get('retryCount', MAX_RETRIES)
+
         for attempt in range(1 + retry_count):
             # 重试时更新 retry_count，让前端可以轮询到重试状态
             if attempt > 0:
