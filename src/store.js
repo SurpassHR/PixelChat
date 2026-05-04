@@ -2131,8 +2131,30 @@ export async function removeFromStack(stackId, childIndex, targetX, targetY) {
     console.log(`[移出Stack调试] 已添加为独立画布项, dropId=${dropId}`);
   }
 
-  // 如果堆叠组为空，删除整个堆叠组
-  if (stack.items.length === 0) {
+  // 如果堆叠组只剩 1 张图片，自动解散：将最后一张提升为独立图片
+  if (stack.items.length === 1) {
+    const lastItem = stack.items[0];
+    const { cx, cy } = getViewportCenter();
+    const dropId = generateId();
+    const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
+    const newDropped = {
+      id: dropId,
+      imageUrl: lastItem.imageUrl,
+      dataHash: lastItem.dataHash || '',
+      canvasSeq: seq,
+      x: typeof targetX === 'number' ? targetX : cx + (Math.random() * 100 - 50),
+      y: typeof targetY === 'number' ? targetY : cy + (Math.random() * 100 - 50),
+      width: 300,
+      height: 300
+    };
+    if (!session.droppedImages) session.droppedImages = [];
+    session.droppedImages.push(newDropped);
+    const stackIndex = session.stacks.findIndex(s => s.id === stackId);
+    if (stackIndex !== -1) session.stacks.splice(stackIndex, 1);
+    console.log('[移除Stack] 堆叠组仅剩1张，自动解散，图片提升为独立项');
+    await forceSaveSessions();
+  } else if (stack.items.length === 0) {
+    // 为空则删除整个堆叠组
     const stackIndex = session.stacks.findIndex(s => s.id === stackId);
     if (stackIndex !== -1) {
       session.stacks.splice(stackIndex, 1);

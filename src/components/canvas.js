@@ -178,7 +178,7 @@ export function renderCanvas() {
         const count = item.count || (item.items ? item.items.length : 0);
         el.innerHTML = `
           <img src="${item.thumbnail || item.items[0].imageUrl}" alt="堆叠组">
-          <div class="stack-badge">+${count - 1}</div>
+          ${count > 1 ? `<div class="stack-badge">+${count - 1}</div>` : ''}
         `;
         const label = document.createElement('div');
         label.className = 'item-label';
@@ -499,9 +499,6 @@ document.addEventListener('keydown', async e => {
 });
 
 function onMouseDown(e) {
-  // 点击画布时让输入框编辑器失焦（收起高度）
-  if (document.activeElement) document.activeElement.blur();
-
   // End any previous rubber band
   if (_rubberBandEl) {
     endRubberBand();
@@ -538,14 +535,20 @@ function onMouseDown(e) {
       }
       // Don't update _lastClickedIndex
     } else {
-      // Plain click: select just this one
+      // Plain click: 即时切换 CSS 选中样式，延迟 state 同步以避免干扰浏览器拖拽初始化
       const newId = itemEl.dataset.itemId;
       console.log('[选中调试] 普通单击, 选中:', newId);
-      setState({ selectedItemIds: [newId] });
+      $$('.canvas-item').forEach(el => {
+        el.classList.toggle('selected', el.dataset.itemId === newId);
+      });
       _lastClickedIndex = getState().canvasItems.findIndex(i => i.itemId === newId);
+      setTimeout(() => setState({ selectedItemIds: [newId] }), 0);
     }
     return;
   }
+
+  // 点击画布空白区域时让输入框编辑器失焦（收起高度）
+  if (document.activeElement) document.activeElement.blur();
 
   // Click on empty area - only left click
   if (e.button !== 0) return;
@@ -638,6 +641,7 @@ let _dragSourceId = null;
 let _dragSourceStackId = null;
 let _dragSourceChildIndex = -1;
 let _dragOverCount = 0;
+let _lastDragOverTarget = null;
 
 function setupItemDrag() {
   surface.addEventListener('dragstart', e => {
@@ -680,8 +684,17 @@ function setupItemDrag() {
     e.dataTransfer.effectAllowed = 'move';
   });
 
-  surface.addEventListener('dragend', () => {
-    console.log('[拖拽] dragend 触发, _dragSourceId:', _dragSourceId);
+  surface.addEventListener('dragend', async () => {
+    console.log('[拖拽] dragend 触发, _dragSourceId:', _dragSourceId, '最后dragover目标:', _lastDragOverTarget?.tag, _lastDragOverTarget?.cls, 'pos:', _lastDragOverTarget?.x, _lastDragOverTarget?.y);
+    // drop 事件可能不触发（浏览器兼容性问题），在 dragend 中完成合并
+    if (_dragSourceId && _lastDragOverTarget) {
+      const targetEl = _lastDragOverTarget.el.closest('.canvas-item');
+      if (targetEl) {
+        console.log('[拖拽] dragend 中执行合并, targetId:', targetEl.dataset.itemId);
+        await handleDragComplete(targetEl);
+      }
+    }
+    _lastDragOverTarget = null;
     _dragSourceId = null;
     _dragSourceStackId = null;
     _dragSourceChildIndex = -1;
@@ -742,6 +755,62 @@ function getCanvasCoords(el) {
   };
 }
 
+// 拖拽合并核心逻辑（由 drop 和 dragend 共用）
+async function handleDragComplete(targetEl) {
+  const dragItem = getState().canvasItems.find(i => i.itemId === _dragSourceId);
+  if (!dragItem) return;
+
+  if (!targetEl || targetEl.dataset.itemId === _dragSourceId) return;
+
+  let targetItem = getState().canvasItems.find(i => i.itemId === targetEl.dataset.itemId);
+  if (!targetItem) return;
+
+  // --- 展开模式下不允许与临时项合并 ---
+  if (_expandedStackId) {
+    if (targetItem._tempParentStackId) {
+      showToast('请先折叠堆叠组再合并', 'info');
+      return;
+    }
+    if (dragItem._tempParentStackId) {
+      showToast('请先折叠堆叠组再合并', 'info');
+      return;
+    }
+  }
+
+  // 确认源元素仍存在
+  const dragEl = document.querySelector(`.canvas-item[data-item-id="${_dragSourceId}"]`);
+  if (!dragEl) return;
+
+  // --- 场景 1：两个 stack 合并 ---
+  if (dragItem.type === 'stack' && targetItem.type === 'stack') {
+    const success = await mergeStacks(dragItem.stackId, targetItem.stackId);
+    showToast(success ? '已合并堆叠组' : '合并失败', success ? 'success' : 'error');
+    return;
+  }
+
+  // --- 场景 2：拖拽 stack 到普通图像 ~ 将图像加入 stack ---
+  if (dragItem.type === 'stack' && targetItem.type !== 'stack') {
+    const success = await addToStack(dragItem.stackId, _dragSourceId);
+    showToast(success ? '已加入堆叠组' : '加入失败', success ? 'success' : 'error');
+    return;
+  }
+
+  // --- 场景 3：目标已是 stack，将源加入 ---
+  if (targetItem.type === 'stack') {
+    const stackId = targetItem.stackId;
+    const success = await addToStack(stackId, _dragSourceId);
+    showToast(success ? '已加入堆叠组' : '加入失败', success ? 'success' : 'error');
+    return;
+  }
+
+  // --- 场景 4：两个普通图像，创建新 stack ---
+  console.log('[拖拽] 3. 松开鼠标，准备清除2张图片并创建 stack, ids:', [_dragSourceId, targetItem.itemId]);
+  const coords = getCanvasCoords(targetEl);
+  const stack = await createStackFromItems([_dragSourceId, targetItem.itemId], coords.x, coords.y);
+  console.log('[拖拽] 4. stack 创建结果:', stack ? '成功 id=' + stack.id + ' items=' + stack.items.length : '失败');
+  showToast(stack ? '已创建堆叠组' : '创建失败', stack ? 'success' : 'error');
+}
+
 // 处理拖拽合并
 function setupDragMerge() {
   surface.addEventListener('drop', async e => {
@@ -756,10 +825,8 @@ function setupDragMerge() {
     if (!_dragSourceId) return;
     e.stopPropagation(); // 阻止冒泡到 container，避免 handleMaterialDrop 重复处理
 
-    const targetEl = e.target.closest('.canvas-item');
-    const dragItem = getState().canvasItems.find(i => i.itemId === _dragSourceId);
-
     // --- 场景：拖拽到空白区域 —— 分离（展开模式下的临时项） ---
+    const targetEl = e.target.closest('.canvas-item');
     if (!targetEl && _dragSourceStackId && _dragSourceChildIndex >= 0) {
       const coords = getCanvasCoords(e.target.closest('#canvasSurface') || surface);
       const success = await removeFromStack(_dragSourceStackId, _dragSourceChildIndex, coords.x, coords.y);
@@ -775,58 +842,7 @@ function setupDragMerge() {
       return;
     }
 
-    if (!targetEl || targetEl.dataset.itemId === _dragSourceId) return;
-
-    let targetItem = getState().canvasItems.find(i => i.itemId === targetEl.dataset.itemId);
-    if (!dragItem || !targetItem) return;
-
-    // --- 展开模式下不允许与临时项合并 ---
-    if (_expandedStackId) {
-      if (targetItem._tempParentStackId) {
-        showToast('请先折叠堆叠组再合并', 'info');
-        return;
-      }
-      if (dragItem._tempParentStackId) {
-        showToast('请先折叠堆叠组再合并', 'info');
-        return;
-      }
-    }
-
-    // 确认源元素仍存在（光标已在目标上方，无需 DOM 矩形重叠检测）
-    const dragEl = document.querySelector(`.canvas-item[data-item-id="${_dragSourceId}"]`);
-    if (!dragEl) return;
-
-    // --- 场景 1：两个 stack 合并 ---
-    if (dragItem.type === 'stack' && targetItem.type === 'stack') {
-      const success = await mergeStacks(dragItem.stackId, targetItem.stackId);
-      showToast(success ? '已合并堆叠组' : '合并失败', success ? 'success' : 'error');
-      _dragSourceId = null;
-      return;
-    }
-
-    // --- 场景 2：拖拽 stack 到普通图像 ~ 将图像加入 stack ---
-    if (dragItem.type === 'stack' && targetItem.type !== 'stack') {
-      const success = await addToStack(dragItem.stackId, _dragSourceId);
-      showToast(success ? '已加入堆叠组' : '加入失败', success ? 'success' : 'error');
-      _dragSourceId = null;
-      return;
-    }
-
-    // --- 场景 3：目标已是 stack，将源加入 ---
-    if (targetItem.type === 'stack') {
-      const stackId = targetItem.stackId;
-      const success = await addToStack(stackId, _dragSourceId);
-      showToast(success ? '已加入堆叠组' : '加入失败', success ? 'success' : 'error');
-      _dragSourceId = null;
-      return;
-    }
-
-    // --- 场景 4：两个普通图像，创建新 stack ---
-    console.log('[拖拽] 3. 松开鼠标，准备清除2张图片并创建 stack, ids:', [_dragSourceId, targetItem.itemId]);
-    const coords = getCanvasCoords(targetEl);
-    const stack = await createStackFromItems([_dragSourceId, targetItem.itemId], coords.x, coords.y);
-    console.log('[拖拽] 4. stack 创建结果:', stack ? '成功 id=' + stack.id + ' items=' + stack.items.length : '失败');
-    showToast(stack ? '已创建堆叠组' : '创建失败', stack ? 'success' : 'error');
+    await handleDragComplete(targetEl);
     _dragSourceId = null;
   });
 }
@@ -944,13 +960,22 @@ export function initCanvas() {
       e.preventDefault();
     }
   });
+  // 诊断：document 捕获阶段无条件 preventDefault，确保所有元素都是有效 drop target
+  document.addEventListener('dragover', (e) => {
+    _lastDragOverTarget = { el: e.target, tag: e.target.tagName, cls: e.target.className, id: e.target.id, x: e.clientX, y: e.clientY };
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, true);
   // 诊断：追踪 drop 事件流向
   window.addEventListener('drop', (e) => {
     console.log('[拖拽] WINDOW drop 触发, target:', (e.target.id || e.target.className || e.target.tagName));
   });
   document.addEventListener('drop', (e) => {
-    console.log('[拖拽] DOCUMENT drop 触发, target:', (e.target.id || e.target.className || e.target.tagName));
-  }, true); // 捕获阶段
+    console.log('[拖拽] DOCUMENT drop 捕获, target:', (e.target.id || e.target.className || e.target.tagName), 'clientX:', e.clientX, 'clientY:', e.clientY);
+  }, true);
+  document.addEventListener('drop', (e) => {
+    console.log('[拖拽] DOCUMENT drop 冒泡, target:', (e.target.id || e.target.className || e.target.tagName));
+  });
 
   // 处理素材库拖拽到画布
   const handleMaterialDragOver = (e) => {
