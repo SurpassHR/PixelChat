@@ -607,21 +607,21 @@ def _execute_task(task_id):
                 is_gpt_image = task['model'].startswith('gpt-image')
 
                 if is_gpt_image:
-                    size_map = {
-                        '1:1': '1024x1024',
-                        '3:4': '1024x1365',
-                        '4:3': '1365x1024',
-                        '9:16': '1024x1820',
-                        '16:9': '1820x1024',
-                    }
-                    image_size = size_map.get(task.get('aspectRatio', '1:1'), '1024x1024')
                     prompt = _prompt_with_aspect_ratio(task['prompt'], task.get('aspectRatio'))
+                    if refs:
+                        content = [{'type': 'text', 'text': prompt}]
+                        for ref in refs:
+                            data_url = ref.get('dataUrl', '')
+                            if data_url:
+                                content.append({
+                                    'type': 'image_url',
+                                    'image_url': {'url': data_url, 'detail': 'auto'}
+                                })
+                    else:
+                        content = prompt
                     body = {
                         'model': task['model'],
-                        'messages': [{'role': 'user', 'content': prompt}],
-                        'prompt': prompt,
-                        'n': 1,
-                        'size': image_size
+                        'messages': [{'role': 'user', 'content': content}],
                     }
                 else:
                     if refs:

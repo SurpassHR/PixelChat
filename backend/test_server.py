@@ -143,10 +143,10 @@ class GenerateRequestModelTest(unittest.TestCase):
         self.assertEqual(captured['url'], 'https://api.example.test/v1/chat/completions')
         self.assertEqual(captured['headers']['Authorization'], 'Bearer sk-test')
         self.assertEqual(captured['body']['model'], 'gpt-image-2')
-        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': '画一只猫'}])
-        self.assertEqual(captured['body']['prompt'], '画一只猫')
-        self.assertEqual(captured['body']['n'], 1)
-        self.assertIn('size', captured['body'])
+        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': [
+            {'type': 'text', 'text': '画一只猫'},
+            {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,AAAA', 'detail': 'auto'}},
+        ]}])
 
     def test_gpt_image_prompt_appends_selected_aspect_ratio(self):
         captured = {}
@@ -172,8 +172,10 @@ class GenerateRequestModelTest(unittest.TestCase):
              patch.object(server, '_store_image_from_response', return_value='/api/images/out.png'):
             server._execute_task(self.task_id)
 
-        self.assertEqual(captured['body']['prompt'], '画一只猫 --ar 16:9')
-        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': '画一只猫 --ar 16:9'}])
+        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': [
+            {'type': 'text', 'text': '画一只猫 --ar 16:9'},
+            {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,AAAA', 'detail': 'auto'}},
+        ]}])
 
     def test_gpt_image_prompt_does_not_duplicate_same_aspect_ratio(self):
         captured = {}
@@ -200,8 +202,130 @@ class GenerateRequestModelTest(unittest.TestCase):
              patch.object(server, '_store_image_from_response', return_value='/api/images/out.png'):
             server._execute_task(self.task_id)
 
-        self.assertEqual(captured['body']['prompt'], '画一只猫 --ar 3:4')
-        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': '画一只猫 --ar 3:4'}])
+        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': [
+            {'type': 'text', 'text': '画一只猫 --ar 3:4'},
+            {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,AAAA', 'detail': 'auto'}},
+        ]}])
+
+
+    def test_gpt_image_with_refs_includes_image_url_in_messages(self):
+        captured = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured['body'] = json.loads(req.data.decode('utf-8'))
+            return FakeStream()
+
+        settings = {
+            'providers': {
+                'custom': {
+                    'base_url': 'https://api.example.test/v1/',
+                    'api_key': 'sk-test',
+                }
+            }
+        }
+
+        with patch.dict(server._tasks, {self.task_id: self.task}, clear=True), \
+             patch.object(server, 'kv_get', return_value=settings), \
+             patch.object(server.urllib.request, 'urlopen', side_effect=fake_urlopen), \
+             patch.object(server, '_save_task'), \
+             patch.object(server, '_store_image_from_response', return_value='/api/images/out.png'):
+            server._execute_task(self.task_id)
+
+        content = captured['body']['messages'][0]['content']
+        self.assertIsInstance(content, list)
+        self.assertEqual(content[0], {'type': 'text', 'text': '画一只猫'})
+        self.assertEqual(content[1], {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,AAAA', 'detail': 'auto'}})
+
+    def test_gpt_image_multiple_refs_all_attached(self):
+        self.task['refs'] = [
+            {'name': 'a.png', 'dataUrl': 'data:image/png;base64,AAAA'},
+            {'name': 'b.jpg', 'dataUrl': 'data:image/jpeg;base64,BBBB'},
+        ]
+        captured = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured['body'] = json.loads(req.data.decode('utf-8'))
+            return FakeStream()
+
+        settings = {
+            'providers': {
+                'custom': {
+                    'base_url': 'https://api.example.test/v1/',
+                    'api_key': 'sk-test',
+                }
+            }
+        }
+
+        with patch.dict(server._tasks, {self.task_id: self.task}, clear=True), \
+             patch.object(server, 'kv_get', return_value=settings), \
+             patch.object(server.urllib.request, 'urlopen', side_effect=fake_urlopen), \
+             patch.object(server, '_save_task'), \
+             patch.object(server, '_store_image_from_response', return_value='/api/images/out.png'):
+            server._execute_task(self.task_id)
+
+        content = captured['body']['messages'][0]['content']
+        self.assertEqual(len(content), 3)
+        self.assertEqual(content[0], {'type': 'text', 'text': '画一只猫'})
+        self.assertEqual(content[1], {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,AAAA', 'detail': 'auto'}})
+        self.assertEqual(content[2], {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,BBBB', 'detail': 'auto'}})
+
+    def test_gpt_image_ref_empty_dataurl_skipped(self):
+        self.task['refs'] = [
+            {'name': 'bad.png', 'dataUrl': ''},
+            {'name': 'good.jpg', 'dataUrl': 'data:image/jpeg;base64,GOOD'},
+        ]
+        captured = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured['body'] = json.loads(req.data.decode('utf-8'))
+            return FakeStream()
+
+        settings = {
+            'providers': {
+                'custom': {
+                    'base_url': 'https://api.example.test/v1/',
+                    'api_key': 'sk-test',
+                }
+            }
+        }
+
+        with patch.dict(server._tasks, {self.task_id: self.task}, clear=True), \
+             patch.object(server, 'kv_get', return_value=settings), \
+             patch.object(server.urllib.request, 'urlopen', side_effect=fake_urlopen), \
+             patch.object(server, '_save_task'), \
+             patch.object(server, '_store_image_from_response', return_value='/api/images/out.png'):
+            server._execute_task(self.task_id)
+
+        content = captured['body']['messages'][0]['content']
+        self.assertEqual(len(content), 2)
+        self.assertEqual(content[0], {'type': 'text', 'text': '画一只猫'})
+        self.assertEqual(content[1], {'type': 'image_url', 'image_url': {'url': 'data:image/jpeg;base64,GOOD', 'detail': 'auto'}})
+
+    def test_gpt_image_no_refs_plain_text_content(self):
+        self.task['refs'] = []
+        captured = {}
+
+        def fake_urlopen(req, timeout=None):
+            captured['body'] = json.loads(req.data.decode('utf-8'))
+            return FakeStream()
+
+        settings = {
+            'providers': {
+                'custom': {
+                    'base_url': 'https://api.example.test/v1/',
+                    'api_key': 'sk-test',
+                }
+            }
+        }
+
+        with patch.dict(server._tasks, {self.task_id: self.task}, clear=True), \
+             patch.object(server, 'kv_get', return_value=settings), \
+             patch.object(server.urllib.request, 'urlopen', side_effect=fake_urlopen), \
+             patch.object(server, '_save_task'), \
+             patch.object(server, '_store_image_from_response', return_value='/api/images/out.png'):
+            server._execute_task(self.task_id)
+
+        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': '画一只猫'}])
 
 
 if __name__ == '__main__':
