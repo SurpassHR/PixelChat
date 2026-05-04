@@ -2169,3 +2169,57 @@ export async function removeFromStack(stackId, childIndex, targetX, targetY) {
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
   return true;
 }
+
+// 解散画布堆叠组：将所有子图片提升为独立画布项，删除 stack
+export async function dissolveStack(stackId) {
+  const session = state.sessions[state.currentSessionId];
+  if (!session) return false;
+
+  const stackIndex = session.stacks?.findIndex(s => s.id === stackId);
+  if (stackIndex === undefined || stackIndex === -1) {
+    console.error('[解散Stack] 未找到 stack:', stackId);
+    return false;
+  }
+
+  const stack = session.stacks[stackIndex];
+  const children = [...stack.items];
+  if (children.length === 0) {
+    session.stacks.splice(stackIndex, 1);
+    await saveSessions();
+    await rebuildCanvasFromSession();
+    return true;
+  }
+
+  // 以 stack 位置为中心，将每个子图片分散放置
+  const baseX = stack.x || 100;
+  const baseY = stack.y || 100;
+  const cols = 3;
+  const spacing = 20;
+  const width = 300;
+  const height = 300;
+
+  if (!session.droppedImages) session.droppedImages = [];
+  children.forEach((child, idx) => {
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const dropId = generateId();
+    const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
+    session.droppedImages.push({
+      id: dropId,
+      imageUrl: child.imageUrl,
+      dataHash: child.dataHash || '',
+      canvasSeq: seq,
+      x: baseX + col * (width + spacing),
+      y: baseY + row * (height + spacing),
+      width: 300,
+      height: 300
+    });
+  });
+
+  session.stacks.splice(stackIndex, 1);
+  console.log('[解散Stack] 已解散堆叠组，释放', children.length, '张图片');
+  await saveSessions();
+  await rebuildCanvasFromSession();
+  if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
+  return true;
+}

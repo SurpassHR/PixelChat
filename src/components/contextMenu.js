@@ -1,4 +1,4 @@
-import { getState, setState, addMaterial, addDroppedImage, removeCanvasItemById, removeMaterial, createStackFromItems, removeFromStack } from '../store.js';
+import { getState, setState, addMaterial, addDroppedImage, removeCanvasItemById, removeMaterial, createStackFromItems, removeFromStack, dissolveStack } from '../store.js';
 import { $, $$ } from '../domHelpers.js';
 import { openPromptHistory } from './modal.js';
 import { showToast } from '../toast.js';
@@ -36,6 +36,12 @@ export function showMenu(e, context, data) {
         currentData.stackId = data.tempStackId;
         currentData.childIndex = data.childIndex;
       }
+    }
+    // "解散 stack": 仅在右键堆叠组时显示
+    const dissolveStackItem = $$('.menu-item[data-action="dissolveStack"]', menu)[0];
+    if (dissolveStackItem) {
+      const item = getState().canvasItems.find(i => i.itemId === data.itemId);
+      dissolveStackItem.classList.toggle('hidden', !item || item.type !== 'stack');
     }
   }
 
@@ -256,6 +262,21 @@ export async function handleAction(action) {
       } else {
         showToast('无法识别堆叠组', 'error');
       }
+      break;
+    }
+    case 'dissolveStack': {
+      const itemId = currentData?.itemId;
+      if (!itemId) {
+        showToast('无法识别堆叠组', 'error');
+        break;
+      }
+      const item = getState().canvasItems.find(i => i.itemId === itemId);
+      if (!item || item.type !== 'stack') {
+        showToast('仅堆叠组可解散', 'error');
+        break;
+      }
+      const success = await dissolveStack(item.stackId);
+      showToast(success ? '已解散堆叠组' : '解散失败', success ? 'success' : 'error');
       break;
     }
     case 'addRef': {
