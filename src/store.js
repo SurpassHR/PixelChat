@@ -21,6 +21,7 @@ const state = {
   statusText: '就绪',
   generating: false,
   batchSize: 1,
+  retryCount: 2,
   aspectRatio: '1:1',
   selectedFamilyId: '',
   selectedResolution: '1K'
@@ -251,7 +252,7 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
-  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'selectedModelKey' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'aspectRatio' in partial || 'selectedFamilyId' in partial || 'selectedResolution' in partial) {
+  if ('selectedModelId' in partial || 'selectedProvider' in partial || 'selectedModelKey' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'retryCount' in partial || 'aspectRatio' in partial || 'selectedFamilyId' in partial || 'selectedResolution' in partial) {
     saveSettings();
   }
   // 当 refImages 或 promptDraft 变化时，自动保存当前会话草稿
@@ -390,6 +391,7 @@ function debouncedBackendSync() {
         reusePrompt: state.reusePrompt,
         reuseRef: state.reuseRef,
         batchSize: state.batchSize,
+        retryCount: state.retryCount,
         aspectRatio: state.aspectRatio,
         selectedFamilyId: state.selectedFamilyId,
         selectedResolution: state.selectedResolution
@@ -1659,6 +1661,7 @@ export async function initStore() {
     if (settings.reusePrompt !== undefined) state.reusePrompt = settings.reusePrompt;
     if (settings.reuseRef !== undefined) state.reuseRef = settings.reuseRef;
     if (settings.batchSize !== undefined) state.batchSize = settings.batchSize;
+    if (settings.retryCount !== undefined) state.retryCount = settings.retryCount;
     if (settings.aspectRatio !== undefined) state.aspectRatio = settings.aspectRatio;
     if (settings.selectedFamilyId !== undefined) state.selectedFamilyId = settings.selectedFamilyId;
     if (settings.selectedResolution !== undefined) state.selectedResolution = settings.selectedResolution;

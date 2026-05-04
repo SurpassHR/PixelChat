@@ -297,25 +297,53 @@
         <button class="modal-close" id="settingsModalCloseBtn">×</button>
       </div>
       <div class="settings-body">
-        <!-- Left: Provider sidebar -->
+        <!-- Left: Sub-menu sidebar -->
         <div class="settings-sidebar">
-          <div class="settings-sidebar-header">
-            <span class="settings-sidebar-title">供应商</span>
-            <button class="settings-sidebar-add" id="settingsSidebarAdd" title="添加供应商">+</button>
+          <div class="settings-submenu" id="settingsSubmenu">
+            <div class="settings-submenu-item active" data-panel="providers">
+              <span class="smi-icon">⚙</span>
+              <span class="smi-label">供应商</span>
+            </div>
+            <div class="settings-submenu-item" data-panel="general">
+              <span class="smi-icon">☰</span>
+              <span class="smi-label">常规</span>
+            </div>
           </div>
-          <div class="settings-provider-items" id="settingsProviderItems"></div>
         </div>
-        <!-- Right: Provider config -->
+        <!-- Right: Panel content -->
         <div class="resize-handle resize-handle-settings"></div>
         <div class="settings-main" id="settingsMain">
-          <!-- Empty state -->
-          <div class="settings-empty" id="settingsEmpty">
-            <div class="settings-empty-icon">⚙</div>
-            <div>请选择一个供应商</div>
-            <div class="settings-empty-hint">从左侧列表中选择或添加一个供应商进行配置</div>
+          <!-- General settings panel -->
+          <div class="settings-general-panel" id="settingsGeneralPanel" style="display:none">
+            <div class="settings-section">
+              <div class="settings-section-title">常规设置</div>
+              <div class="settings-card">
+                <div class="settings-field">
+                  <label>重试次数</label>
+                  <input type="number" id="settingsRetryCount" min="0" max="10" step="1" value="2" style="width:80px">
+                  <span style="font-size:11px;color:var(--text2);margin-left:6px">0 为不重试</span>
+                </div>
+              </div>
+            </div>
           </div>
-          <!-- Config content -->
-          <div class="settings-config" id="settingsConfig" style="display:none">
+          <!-- Left: Provider list -->
+          <div class="settings-provider-panel" id="settingsProviderPanel" style="display:none">
+            <div class="settings-provider-panel-header">
+              <span class="settings-section-title">供应商列表</span>
+              <button class="settings-sidebar-add" id="settingsSidebarAdd" title="添加供应商">+</button>
+            </div>
+            <div class="settings-provider-items" id="settingsProviderItems"></div>
+          </div>
+          <!-- Right: Content -->
+          <div class="settings-content" id="settingsContent">
+            <!-- Empty state -->
+            <div class="settings-empty" id="settingsEmpty">
+              <div class="settings-empty-icon">⚙</div>
+              <div>请选择一个供应商</div>
+              <div class="settings-empty-hint">从左侧列表中选择或添加一个供应商进行配置</div>
+            </div>
+            <!-- Config content -->
+            <div class="settings-config" id="settingsConfig" style="display:none">
             <!-- Header -->
             <div class="settings-config-header">
               <div class="settings-config-info">

@@ -25,7 +25,8 @@ function getStatusIcon(task) {
 function getStatusText(task) {
   // 重试中：running 状态且 retry_count > 0
   if (task.status === 'running' && task.retry_count > 0) {
-    return `正在重试 (${task.retry_count}/2)`;
+    const maxRetries = getState().retryCount ?? 2;
+    return `正在重试 (${task.retry_count}/${maxRetries})`;
   }
   switch (task.status) {
     case 'running': return '正在生成...';

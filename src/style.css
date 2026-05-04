@@ -3039,28 +3039,52 @@ body {
 
 /* --- Sidebar --- */
 .settings-sidebar {
-  width: 220px;
-  min-width: 150px;
+  width: 160px;
+  min-width: 120px;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   background: var(--surface);
 }
 
-.settings-sidebar-header {
-  padding: 14px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--border);
+/* Sub-menu */
+.settings-submenu {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
 }
 
-.settings-sidebar-title {
-  font-size: 12px;
-  font-weight: 600;
+.settings-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  cursor: pointer;
   color: var(--text2);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-size: 13px;
+  transition: background 0.15s, color 0.15s;
+  border-left: 2px solid transparent;
+}
+
+.settings-submenu-item:hover {
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.settings-submenu-item.active {
+  background: rgba(139, 105, 20, 0.12);
+  color: var(--accent);
+  border-left-color: var(--accent-dim);
+}
+
+.settings-submenu-item .smi-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.settings-submenu-item .smi-label {
+  font-weight: 500;
 }
 
 .settings-sidebar-add {
@@ -3094,7 +3118,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
+  padding: 10px 20px;
   cursor: pointer;
   color: var(--text2);
   font-size: 13px;
@@ -3150,13 +3174,45 @@ body {
   flex-shrink: 0;
 }
 
-/* --- Main panel --- */
+/* --- Main panel (two-column layout) --- */
 .settings-main {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--surface-warm);
   display: flex;
+  flex-direction: row;
+}
+
+.settings-provider-panel {
+  width: 220px;
+  min-width: 180px;
+  border-right: 1px solid var(--border);
+  display: flex;
   flex-direction: column;
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.settings-provider-panel-header {
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-general-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.settings-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .settings-empty {

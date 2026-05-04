@@ -576,7 +576,7 @@ def _execute_task(task_id):
 
         last_error = None
 
-        for attempt in range(1 + MAX_RETRIES):
+        for attempt in range(1 + retry_count):
             # 重试时更新 retry_count，让前端可以轮询到重试状态
             if attempt > 0:
                 with _tasks_lock:
@@ -588,6 +588,7 @@ def _execute_task(task_id):
 
             try:
                 settings = kv_get('settings', {})
+                retry_count = settings.get('retryCount', MAX_RETRIES)
                 providers = settings.get('providers', {})
                 provider_name = task['provider']
                 provider = providers.get(provider_name)
@@ -703,7 +704,7 @@ def _execute_task(task_id):
                 thinking_verified = False  # 思考块中是否出现了"打码验证"
 
                 print(f'[任务] {task_id} 发送请求: {request_url} '
-                      f'(model={task["model"]}, attempt={attempt + 1}/{1 + MAX_RETRIES})')
+                      f'(model={task["model"]}, attempt={attempt + 1}/{1 + retry_count})')
 
                 thinking = ''
                 final_content = ''
@@ -956,10 +957,10 @@ def _execute_task(task_id):
                 print(f'  响应体: {err_body}')
                 # 429 Too Many Requests: 使用更长退避时间重试
                 if status_code == 429:
-                    if attempt < MAX_RETRIES:
+                    if attempt < retry_count:
                         delay = 30 * (attempt + 1)  # 30s, 60s, ...
                         last_error = f'HTTP 429: {err_body}'
-                        print(f'[限流] 任务 {task_id} 遭遇频率限制，{delay:.0f}s 后进行第 {attempt + 1}/{MAX_RETRIES} 次重试')
+                        print(f'[限流] 任务 {task_id} 遭遇频率限制，{delay:.0f}s 后进行第 {attempt + 1}/{retry_count} 次重试')
                         time.sleep(delay)
                         continue
                     else:
@@ -974,11 +975,11 @@ def _execute_task(task_id):
                         return
                 # 403 Forbidden: Cloudflare 等安全网关拦截（如 Error 1010: browser signature）
                 elif status_code == 403:
-                    if attempt < MAX_RETRIES:
+                    if attempt < retry_count:
                         delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
                         last_error = f'HTTP 403: {err_body}'
                         print(f'[防护墙] 任务 {task_id} 遭遇 403 拦截（可能 Cloudflare/WAF），'
-                              f'{delay:.0f}s 后进行第 {attempt + 1}/{MAX_RETRIES} 次重试')
+                              f'{delay:.0f}s 后进行第 {attempt + 1}/{retry_count} 次重试')
                         time.sleep(delay)
                         continue
                     else:
@@ -991,7 +992,7 @@ def _execute_task(task_id):
                                 t['updated_at'] = time.time()
                                 _save_task(t)
                         return
-                elif status_code >= 500 and attempt < MAX_RETRIES:
+                elif status_code >= 500 and attempt < retry_count:
                     last_error = f'HTTP {status_code}: {err_body}'
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
                     print(f'[重试] 任务 {task_id} HTTP {status_code}，'
@@ -1010,11 +1011,11 @@ def _execute_task(task_id):
             except (urllib.error.URLError, socket.timeout, OSError) as e:
                 err_msg = str(e.reason)[:200] if hasattr(e, 'reason') else str(e)[:200]
                 print(f'[后端连接错误] 任务 {task_id} - {err_msg}')
-                if attempt < MAX_RETRIES:
+                if attempt < retry_count:
                     last_error = err_msg
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
                     print(f'[重试] 任务 {task_id} 网络错误: {err_msg}，'
-                          f'第 {attempt + 1}/{MAX_RETRIES} 次重试，{delay:.0f}s 后重试 -> {base}/v1/chat/completions')
+                          f'第 {attempt + 1}/{retry_count} 次重试，{delay:.0f}s 后重试 -> {base}/v1/chat/completions')
                     time.sleep(delay)
                     continue
                 with _tasks_lock:
@@ -1028,12 +1029,12 @@ def _execute_task(task_id):
 
             except Exception as e:
                 err_msg = str(e)[:200]
-                if attempt < MAX_RETRIES:
+                if attempt < retry_count:
                     last_error = err_msg
                     delay = RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 2)
                     target_url = f'{base}/v1/chat/completions' if 'base' in locals() else '未知'
                     print(f'[重试] 任务 {task_id} 错误: {err_msg}，'
-                          f'第 {attempt + 1}/{MAX_RETRIES} 次重试，{delay:.0f}s 后重试 -> {target_url}')
+                          f'第 {attempt + 1}/{retry_count} 次重试，{delay:.0f}s 后重试 -> {target_url}')
                     time.sleep(delay)
                     continue
                 with _tasks_lock:

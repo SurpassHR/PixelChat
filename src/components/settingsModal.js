@@ -6,6 +6,7 @@ import { fetchModels as apiFetchModels } from '../api.js';
 const overlay = $('#settingsModalOverlay');
 
 let _activeProvider = '';
+let _activePanel = 'providers';  // 'providers' | 'general'
 
 // --- Settings modal ---
 
@@ -18,19 +19,78 @@ function openSettingsModal() {
   const { providers } = getState();
   const names = Object.keys(providers);
   _activeProvider = names.includes(_activeProvider) ? _activeProvider : (names[0] || '');
-  renderSidebar();
-  showProviderConfig(_activeProvider);
+  // 恢复到上次活跃的面板
+  if (_activePanel === 'general') {
+    updateSubmenuActive('general');
+    showGeneralPanel();
+  } else {
+    updateSubmenuActive('providers');
+    if (_activeProvider) {
+      renderProviderList();
+      showProviderConfig(_activeProvider);
+    } else {
+      renderProviderList();
+      showProviderPanel();
+    }
+  }
 }
 
-// --- Sidebar ---
+// --- Sub-menu ---
 
-function renderSidebar() {
+function updateSubmenuActive(panel) {
+  $('#settingsSubmenu').querySelectorAll('.settings-submenu-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.panel === panel);
+  });
+}
+
+// --- General settings panel ---
+
+function showGeneralPanel() {
+  const panel = $('#settingsProviderPanel');
+  const content = $('#settingsContent');
+  const config = $('#settingsConfig');
+  const general = $('#settingsGeneralPanel');
+
+  panel.style.display = 'none';
+  content.style.display = 'none';
+  config.style.display = 'none';
+  general.style.display = 'block';
+
+  $('#settingsRetryCount').value = getState().retryCount ?? 2;
+}
+
+// --- Provider list panel (左侧栏) ---
+
+function showProviderPanel() {
+  const { providers } = getState();
+  const names = Object.keys(providers);
+  const panel = $('#settingsProviderPanel');
+  const content = $('#settingsContent');
+  const empty = $('#settingsEmpty');
+  const config = $('#settingsConfig');
+  const general = $('#settingsGeneralPanel');
+
+  _activePanel = 'providers';
+  general.style.display = 'none';
+  config.style.display = 'none';
+  content.style.display = 'flex';
+  empty.style.display = 'flex';
+
+  if (names.length === 0) {
+    panel.style.display = 'none';
+  } else {
+    panel.style.display = 'flex';
+    renderProviderList();
+  }
+}
+
+function renderProviderList() {
   const { providers } = getState();
   const names = Object.keys(providers).sort();
   const container = $('#settingsProviderItems');
 
   if (names.length === 0) {
-    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text2);font-size:12px;">暂无供应商<br>点击上方 + 添加</div>';
+    container.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text2);font-size:12px;">暂无供应商<br>点击 + 添加</div>';
     return;
   }
 
@@ -49,27 +109,36 @@ function renderSidebar() {
     el.addEventListener('click', () => {
       const name = el.dataset.provider;
       _activeProvider = name;
-      renderSidebar();
+      renderProviderList();
       showProviderConfig(name);
     });
   });
 }
 
-// --- Config panel ---
+// --- Config panel (右侧内容区) ---
 
 function showProviderConfig(name) {
+  const panel = $('#settingsProviderPanel');
+  const content = $('#settingsContent');
   const empty = $('#settingsEmpty');
   const config = $('#settingsConfig');
+  const general = $('#settingsGeneralPanel');
   const { providers } = getState();
 
+  _activePanel = 'providers';
+  general.style.display = 'none';
+
   if (!name || !providers[name]) {
-    empty.style.display = 'flex';
     config.style.display = 'none';
+    empty.style.display = 'flex';
     return;
   }
 
+  panel.style.display = 'flex';
+  content.style.display = 'flex';
   empty.style.display = 'none';
   config.style.display = 'block';
+  renderProviderList();
 
   const p = providers[name];
 
@@ -149,7 +218,6 @@ function renderModelTable(providerName) {
   tbody.querySelectorAll('.toggle-switch input').forEach(cb => {
     cb.addEventListener('change', () => {
       toggleModelEnabled(providerName, cb.dataset.modelId);
-      // 重新渲染工具栏以保持按钮状态（但无需重新创建，只是按钮不变）
     });
   });
 
@@ -185,7 +253,6 @@ function syncSelectBtnStates(tbody, selectedKey) {
 
 function openAddModal() {
   const apOverlay = $('#addProviderOverlay');
-  // 直接显示自定义表单，不再显示网格选择
   $('#apBody').style.display = 'none';
   $('#apCustom').style.display = '';
   $('#apCustomName').value = '';
@@ -216,7 +283,7 @@ function handleCustomSubmit() {
   setState({ statusText: `已添加供应商: ${name}` });
   closeAddModal();
   _activeProvider = name;
-  renderSidebar();
+  renderProviderList();
   showProviderConfig(name);
 
   fetchAndRenderModels(name);
@@ -258,8 +325,12 @@ function deleteActiveProvider() {
   const { providers } = getState();
   const names = Object.keys(providers);
   _activeProvider = names.length > 0 ? names[0] : '';
-  renderSidebar();
-  showProviderConfig(_activeProvider);
+  renderProviderList();
+  if (_activeProvider) {
+    showProviderConfig(_activeProvider);
+  } else {
+    showProviderPanel();
+  }
   setState({ statusText: `已删除供应商: ${name}` });
 }
 
@@ -337,6 +408,24 @@ export function initSettingsModal() {
     if (e.key === 'Escape' && overlay.style.display !== 'none') closeSettingsModal();
   });
 
+  // Sub-menu click
+  $('#settingsSubmenu').addEventListener('click', e => {
+    const item = e.target.closest('.settings-submenu-item');
+    if (!item) return;
+    const panel = item.dataset.panel;
+    _activePanel = panel;
+    updateSubmenuActive(panel);
+    if (panel === 'general') {
+      showGeneralPanel();
+    } else if (panel === 'providers') {
+      if (_activeProvider) {
+        showProviderConfig(_activeProvider);
+      } else {
+        showProviderPanel();
+      }
+    }
+  });
+
   // Sidebar add button → open modal
   $('#settingsSidebarAdd').addEventListener('click', openAddModal);
 
@@ -346,11 +435,6 @@ export function initSettingsModal() {
   });
   $('#apCloseBtn').addEventListener('click', closeAddModal);
   $('#apCancelBtn').addEventListener('click', closeAddModal);
-  // 移除返回网格按钮的监听（apCustomBack 可能不存在，但保留兼容）
-  const backBtn = $('#apCustomBack');
-  if (backBtn) {
-    // 移除原有监听，或者改为关闭模态框等。这里简单移除监听，但原监听已被替换，无需额外处理
-  }
   $('#apCustomSubmit').addEventListener('click', handleCustomSubmit);
   $('#apCustomName').addEventListener('keydown', e => {
     if (e.key === 'Enter') handleCustomSubmit();
@@ -370,18 +454,28 @@ export function initSettingsModal() {
   // Auto-save on input
   $('#settingsApiKey').addEventListener('input', scheduleSave);
   $('#settingsBaseUrl').addEventListener('input', scheduleSave);
+  $('#settingsRetryCount').addEventListener('input', () => {
+    const val = parseInt($('#settingsRetryCount').value, 10);
+    if (!isNaN(val) && val >= 0 && val <= 10) {
+      setState({ retryCount: val });
+    }
+  });
 
   // Re-render when external data changes
   subscribe('providers', () => {
-    if (overlay.style.display !== 'none') {
-      renderSidebar();
-      if (_activeProvider) showProviderConfig(_activeProvider);
+    if (overlay.style.display !== 'none' && _activePanel === 'providers') {
+      renderProviderList();
+      if (_activeProvider) {
+        showProviderConfig(_activeProvider);
+      } else {
+        showProviderPanel();
+      }
     }
   });
 
   subscribe('models', () => {
-    if (overlay.style.display !== 'none') {
-      renderSidebar();
+    if (overlay.style.display !== 'none' && _activePanel === 'providers') {
+      renderProviderList();
       if (_activeProvider) showProviderConfig(_activeProvider);
     }
   });
