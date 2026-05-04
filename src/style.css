@@ -248,6 +248,7 @@ body {
   border: 1px solid transparent;
   font-size: 12px;
   transition: border-color 0.2s;
+  cursor: pointer;
 }
 
 .tq-item:hover {
@@ -509,6 +510,130 @@ body {
   white-space: pre-wrap;
   word-break: break-all;
   line-height: 1.5;
+}
+
+/* ── 任务详情 Modal ── */
+
+.task-detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2600;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-detail-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  max-width: 520px;
+  width: 90%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.task-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.task-detail-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.task-detail-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.task-detail-label {
+  font-size: 11px;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.task-detail-value {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+  word-break: break-word;
+  background: var(--surface2);
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.task-detail-error {
+  color: var(--danger);
+  border: 1px solid rgba(242, 139, 130, 0.2);
+}
+
+.task-detail-status-ok {
+  color: var(--success);
+}
+
+.task-detail-status-err {
+  color: var(--danger);
+}
+
+.task-detail-status-cancelled {
+  color: var(--text2);
+}
+
+.task-detail-thinking {
+  font-size: 12px;
+  color: var(--text2);
+  font-style: italic;
+  background: var(--surface2);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.task-detail-json {
+  font-size: 12px;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 0;
+  max-height: 300px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.task-detail-url {
+  font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  word-break: break-all;
 }
 
 .session-item {

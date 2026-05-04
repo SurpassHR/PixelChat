@@ -3,10 +3,12 @@ import { $, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
 import { addFailedTask, addSuccessTask } from './taskLog.js';
 import { openExpandModal } from './expandModal.js';
+import { openTaskDetail } from './taskDetailModal.js';
 
 let pollTimer = null;
 let processedIds = new Set();
 let renderedIds = new Set();
+let currentTasks = [];
 
 // ── Render ──
 
@@ -169,6 +171,8 @@ async function poll() {
   const tasks = await fetchTasks();
   if (!Array.isArray(tasks)) return;
 
+  currentTasks = tasks;
+
   // Sync to canvas first
   await syncToCanvas(tasks);
 
@@ -192,18 +196,29 @@ function stopPolling() {
 // ── Init ──
 
 export function initTaskQueue() {
-  // Cancel button delegation
+  // Task item click → detail modal & cancel button delegation
   const list = $('#taskQueueList');
   if (list) {
     list.addEventListener('click', async e => {
+      // 取消按钮
       const btn = e.target.closest('.tq-cancel');
-      if (!btn) return;
-      const taskId = btn.dataset.taskId;
-      try {
-        await cancelBackendTask(taskId);
-        showToast('任务已取消', 'success');
-      } catch (err) {
-        showToast('取消失败: ' + err.message, 'error');
+      if (btn) {
+        const taskId = btn.dataset.taskId;
+        try {
+          await cancelBackendTask(taskId);
+          showToast('任务已取消', 'success');
+        } catch (err) {
+          showToast('取消失败: ' + err.message, 'error');
+        }
+        return;
+      }
+
+      // 任务项点击 → 打开详情 Modal
+      const item = e.target.closest('.tq-item');
+      if (item) {
+        const taskId = item.dataset.taskId;
+        const task = currentTasks.find(t => t.id === taskId);
+        if (task) openTaskDetail(task);
       }
     });
   }
