@@ -231,8 +231,11 @@ export async function handleAction(action) {
       let stackId = currentData?.stackId || currentData?.tempStackId;
       
       const extractIndexFromTempId = (id) => {
-        const match = id.match(/temp-[^-]+-(\d+)-/);
-        return match ? parseInt(match[1], 10) : null;
+        const el = document.querySelector(`.canvas-item[data-item-id="${id}"]`);
+        if (el && el.dataset.childIndex !== undefined) {
+          return parseInt(el.dataset.childIndex, 10);
+        }
+        return null;
       };
       
       if (currentData?.childIndex !== undefined && stackId) {
@@ -249,15 +252,18 @@ export async function handleAction(action) {
         indicesToRemove.sort((a, b) => b - a);
         
         console.log(`[右键移出] 准备从 stack ${stackId} 移出索引:`, indicesToRemove);
-        
-        for (const idx of indicesToRemove) {
-          await removeFromStack(stackId, idx);
-        }
-        showToast(`已从堆叠组移出 ${indicesToRemove.length} 张图片`, 'success');
-        
-        if (window.__expandedStackId === stackId) {
-          window.__expandedStackId = null;
-          if (window.__expandedItems) window.__expandedItems = [];
+
+        // 使用 batchRemoveFromExpandedStack 确保展开视图即时刷新
+        if (window.batchRemoveFromExpandedStack) {
+          await window.batchRemoveFromExpandedStack(stackId, indicesToRemove);
+          showToast(`已从堆叠组移出 ${indicesToRemove.length} 张图片`, 'success');
+        } else {
+          // 回退：手动移除并刷新
+          for (const idx of indicesToRemove) {
+            await removeFromStack(stackId, idx);
+          }
+          showToast(`已从堆叠组移出 ${indicesToRemove.length} 张图片`, 'success');
+          if (window.refreshExpandedView) await window.refreshExpandedView();
         }
       } else {
         showToast('无法识别堆叠组', 'error');
