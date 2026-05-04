@@ -7,7 +7,7 @@ const menu = $('#contextMenu');
 let currentContext = null;
 let currentData = null;
 
-function showMenu(e, context, data) {
+export function showMenu(e, context, data) {
   e.preventDefault();
   currentContext = context;
   currentData = data;
@@ -49,13 +49,13 @@ function showMenu(e, context, data) {
   menu.classList.add('active');
 }
 
-function hideMenu() {
+export function hideMenu() {
   menu.classList.remove('active');
   currentContext = null;
   currentData = null;
 }
 
-async function handleAction(action) {
+export async function handleAction(action) {
   // 辅助函数：获取需要操作的 itemId 列表（支持批量）
   const getTargetItemIds = () => {
     if (currentContext === 'canvas-image') {
@@ -149,8 +149,22 @@ async function handleAction(action) {
         }
       }
       const combined = prompts.join('\n---\n');
-      navigator.clipboard.writeText(combined).catch(() => {});
-      showToast(`已复制 ${prompts.length} 条提示词`, 'success');
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(combined);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = combined;
+          ta.style.cssText = 'position:fixed;left:-9999px;top:-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        showToast(`已复制 ${prompts.length} 条提示词`, 'success');
+      } catch (err) {
+        showToast('复制失败: ' + (err?.message || '未知错误'), 'error');
+      }
       break;
     }
     case 'download': {
