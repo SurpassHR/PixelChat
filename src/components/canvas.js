@@ -204,6 +204,18 @@ export function renderCanvas() {
     }
 
     surface.appendChild(el);
+
+    // 捕获已完成图像的自然分辨率
+    if (item.status === 'ok' && item.type !== 'stack' && !item.resolution) {
+      const img = el.querySelector('img');
+      if (img) {
+        img.addEventListener('load', () => {
+          if (img.naturalWidth && img.naturalHeight) {
+            item.resolution = { width: img.naturalWidth, height: img.naturalHeight };
+          }
+        }, { once: true });
+      }
+    }
   });
 }
 
@@ -306,6 +318,11 @@ function expandStack(stackItem) {
       status: child.status || 'ok',
       generating: false,
       error: child.error || '',
+      model: child.model || '',
+      provider: child.provider || '',
+      createdAt: child.createdAt || null,
+      durationMs: child.durationMs ?? null,
+      resolution: child.resolution || null,
       messageIndex: -1,
       canvasSeq: Date.now() + idx
     };
@@ -367,6 +384,11 @@ async function refreshExpandedView() {
       status: child.status || 'ok',
       generating: false,
       error: child.error || '',
+      model: child.model || '',
+      provider: child.provider || '',
+      createdAt: child.createdAt || null,
+      durationMs: child.durationMs ?? null,
+      resolution: child.resolution || null,
       messageIndex: -1,
       canvasSeq: Date.now() + idx
     };
@@ -960,6 +982,23 @@ export function initCanvas() {
     const btn = e.target.closest('.gen-cancel');
     if (btn && btn.dataset.itemId) {
       cancelGeneration(btn.dataset.itemId);
+    }
+  });
+
+  // 单击已完成图片打开详情 Modal
+  container.addEventListener('click', e => {
+    if (e.target.closest('.gen-cancel')) return;
+    const itemEl = e.target.closest('.canvas-item');
+    if (!itemEl) return;
+    const id = itemEl.dataset.itemId;
+    const { canvasItems } = getState();
+    let item = canvasItems.find(i => i.itemId === id);
+    if (!item && _expandedStackId) {
+      item = _expandedItems.find(i => i.itemId === id);
+    }
+    if (!item) return;
+    if (item.status === 'ok' && item.type !== 'stack') {
+      openImageDetail(item);
     }
   });
 

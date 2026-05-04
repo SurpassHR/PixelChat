@@ -120,7 +120,13 @@ async function syncToCanvas(tasks) {
           imageUrl: task.image_url,
           prompt: task.prompt,
           refImages: [],
-          placeholderId: match.itemId
+          placeholderId: match.itemId,
+          model: task.model || match.model || '',
+          provider: task.provider || match.provider || '',
+          createdAt: task.created_at ? task.created_at * 1000 : null,
+          durationMs: (task.created_at && task.completed_at)
+            ? (task.completed_at - task.created_at) * 1000
+            : null
         });
         processedIds.add(task.id);
       } else {
@@ -130,7 +136,13 @@ async function syncToCanvas(tasks) {
           error: '响应中未找到图片',
           prompt: task.prompt,
           refImages: [],
-          placeholderId: match.itemId
+          placeholderId: match.itemId,
+          model: task.model || match.model || '',
+          provider: task.provider || match.provider || '',
+          createdAt: task.created_at ? task.created_at * 1000 : null,
+          durationMs: (task.created_at && task.completed_at)
+            ? (task.completed_at - task.created_at) * 1000
+            : null
         });
         processedIds.add(task.id);
       }
@@ -144,7 +156,13 @@ async function syncToCanvas(tasks) {
         error: task.error || '生成失败',
         prompt: task.prompt,
         refImages: [],
-        placeholderId: match.itemId
+        placeholderId: match.itemId,
+        model: task.model || match.model || '',
+        provider: task.provider || match.provider || '',
+        createdAt: task.created_at ? task.created_at * 1000 : null,
+        durationMs: (task.created_at && task.completed_at)
+          ? (task.completed_at - task.created_at) * 1000
+          : null
       });
       processedIds.add(task.id);
     } else if (task.status === 'cancelled') {

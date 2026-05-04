@@ -4,6 +4,15 @@ import { $, escapeHtml } from '../domHelpers.js';
 const overlay = $('#modalOverlay');
 const historyOverlay = $('#historyModalOverlay');
 
+function formatDuration(ms) {
+  if (ms == null) return '--';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} s`;
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.round((ms % 60000) / 1000);
+  return `${minutes} min ${seconds} s`;
+}
+
 // Image transform state
 let imgTransform = { scale: 1, rotation: 0, flipH: 1, flipV: 1, tx: 0, ty: 0 };
 let isDragging = false;
@@ -115,6 +124,25 @@ export async function openImageDetail(item) {
     detailRefs.innerHTML = refHtml.join('');
   } else {
     refsSection.style.display = 'none';
+  }
+
+  // Metadata section
+  const metaSection = $('#detailMetaSection');
+  const hasMetadata = item.provider || item.model || item.resolution || item.createdAt || item.durationMs != null;
+
+  if (hasMetadata) {
+    metaSection.style.display = '';
+    $('#detailProvider').textContent = item.provider || '--';
+    $('#detailModel').textContent = item.model || '--';
+    $('#detailResolution').textContent = item.resolution
+      ? `${item.resolution.width} x ${item.resolution.height}`
+      : '--';
+    $('#detailGenTime').textContent = item.createdAt
+      ? new Date(item.createdAt).toLocaleString()
+      : '--';
+    $('#detailDuration').textContent = formatDuration(item.durationMs);
+  } else {
+    metaSection.style.display = 'none';
   }
 
   overlay.style.display = 'flex';

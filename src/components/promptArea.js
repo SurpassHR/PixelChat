@@ -184,7 +184,7 @@ async function generate() {
 
   // Create generating placeholders linked to tasks
   for (const taskId of taskIds) {
-    addGeneratingPlaceholder(prompt, turnRefs, taskId);
+    addGeneratingPlaceholder(prompt, turnRefs, taskId, selectedModelId, selectedProvider);
   }
 
   // Store user message

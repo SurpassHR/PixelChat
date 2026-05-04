@@ -605,7 +605,7 @@ function getViewportCenter() {
 // --------------------------------------------------------------
 // 生成占位符
 // --------------------------------------------------------------
-export function addGeneratingPlaceholder(prompt, refImages, taskId) {
+export function addGeneratingPlaceholder(prompt, refImages, taskId, model, provider) {
   const id = generateId();
   const item = {
     itemId: 'gen-' + id,
@@ -619,6 +619,8 @@ export function addGeneratingPlaceholder(prompt, refImages, taskId) {
     startTime: Date.now(),
     error: '',
     thinking: '',
+    model: model || '',
+    provider: provider || '',
     type: 'image'
   };
   state.canvasItems.push(item);
@@ -631,7 +633,9 @@ export function addGeneratingPlaceholder(prompt, refImages, taskId) {
       taskId,
       prompt: prompt || '',
       refImages: refImages || [],
-      startTime: Date.now()
+      startTime: Date.now(),
+      model: model || '',
+      provider: provider || ''
     });
     saveSessions();
   }
@@ -640,7 +644,7 @@ export function addGeneratingPlaceholder(prompt, refImages, taskId) {
   return item;
 }
 
-export async function addResultToCanvas({ status, imageUrl, prompt, refImages, error, placeholderId }) {
+export async function addResultToCanvas({ status, imageUrl, prompt, refImages, error, placeholderId, model, provider, createdAt, durationMs }) {
   const session = state.sessions[state.currentSessionId];
   if (!session) return null;
 
@@ -675,7 +679,11 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
     imageUrl: imageUrl || '',
     prompt: prompt || '',
     refImages: uploadRefs,
-    canvasSeq: seq
+    canvasSeq: seq,
+    model: model || '',
+    provider: provider || '',
+    createdAt: createdAt || null,
+    durationMs: durationMs ?? null
   };
   session.messages.push(msg);
   session.updatedAt = Date.now();
@@ -704,6 +712,11 @@ export async function addResultToCanvas({ status, imageUrl, prompt, refImages, e
     generating: false,
     status: status || 'ok',
     error: error || '',
+    model: model || '',
+    provider: provider || '',
+    createdAt: createdAt || null,
+    durationMs: durationMs ?? null,
+    resolution: null,
     type: 'image'
   };
 
@@ -773,6 +786,11 @@ export async function addDroppedImage(dataUrl) {
     generating: false,
     status: 'ok',
     error: '',
+    model: '',
+    provider: '',
+    createdAt: null,
+    durationMs: null,
+    resolution: null,
     dropId: id,
     type: 'image'
   };
@@ -894,6 +912,11 @@ export async function rebuildCanvasFromSession() {
             status: 'ok',
             error: '',
             canvasSeq: msg.canvasSeq,
+            model: msg.model || '',
+            provider: msg.provider || '',
+            createdAt: msg.createdAt || null,
+            durationMs: msg.durationMs ?? null,
+            resolution: null,
             type: 'image'
           });
         } else if (msg.status === 'error') {
@@ -911,6 +934,11 @@ export async function rebuildCanvasFromSession() {
             status: 'error',
             error: msg.error || '',
             canvasSeq: msg.canvasSeq,
+            model: msg.model || '',
+            provider: msg.provider || '',
+            createdAt: msg.createdAt || null,
+            durationMs: msg.durationMs ?? null,
+            resolution: null,
             type: 'image'
           });
         }
@@ -1584,7 +1612,13 @@ async function _reconcilePendingTasks() {
             imageUrl: backendTask.image_url,
             prompt: backendTask.prompt || pt.prompt,
             refImages: pt.refImages || [],
-            placeholderId: null
+            placeholderId: null,
+            model: backendTask.model || pt.model || '',
+            provider: backendTask.provider || pt.provider || '',
+            createdAt: backendTask.created_at ? backendTask.created_at * 1000 : null,
+            durationMs: (backendTask.created_at && backendTask.completed_at)
+              ? (backendTask.completed_at - backendTask.created_at) * 1000
+              : null
           });
         } catch (e) {
           console.error('[同步] 恢复已完成任务失败:', pt.taskId, e);
@@ -1607,7 +1641,13 @@ async function _reconcilePendingTasks() {
               error: backendTask.error || '生成失败',
               prompt: backendTask.prompt || pt.prompt,
               refImages: pt.refImages || [],
-              placeholderId: null
+              placeholderId: null,
+              model: backendTask.model || pt.model || '',
+              provider: backendTask.provider || pt.provider || '',
+              createdAt: backendTask.created_at ? backendTask.created_at * 1000 : null,
+              durationMs: (backendTask.created_at && backendTask.completed_at)
+                ? (backendTask.completed_at - backendTask.created_at) * 1000
+                : null
             });
           } catch (e) {
             console.error('[同步] 恢复失败任务结果出错:', pt.taskId, e);
@@ -1940,6 +1980,11 @@ export async function createStackFromItems(itemIds, x, y) {
       status: canvasItem.status || 'ok',
       error: canvasItem.error || '',
       generating: false,
+      model: canvasItem.model || '',
+      provider: canvasItem.provider || '',
+      createdAt: canvasItem.createdAt || null,
+      durationMs: canvasItem.durationMs ?? null,
+      resolution: canvasItem.resolution || null,
     };
     children.push(child);
     itemsToRemove.push(id);

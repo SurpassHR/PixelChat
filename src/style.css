@@ -2739,6 +2739,34 @@ body {
   border: 1px solid var(--border);
 }
 
+/* --- Metadata display in detail modal --- */
+.detail-meta-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+
+.meta-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.meta-label {
+  font-size: 12px;
+  color: var(--text2);
+  flex-shrink: 0;
+}
+
+.meta-value {
+  font-size: 12px;
+  color: var(--text);
+  text-align: right;
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+}
+
 .detail-info-col .detail-actions {
   display: flex;
   gap: 8px;
