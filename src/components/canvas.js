@@ -637,6 +637,7 @@ export async function handlePasteFromClipboard() {
 let _dragSourceId = null;
 let _dragSourceStackId = null;
 let _dragSourceChildIndex = -1;
+let _dragOverCount = 0;
 
 function setupItemDrag() {
   surface.addEventListener('dragstart', e => {
@@ -654,9 +655,10 @@ function setupItemDrag() {
     }
 
     _dragSourceId = id;
-    // 记录拖拽源的 stack 信息（用于展开模式下的分离操作）
     _dragSourceStackId = item._tempParentStackId || null;
     _dragSourceChildIndex = typeof item._childIndex === 'number' ? item._childIndex : -1;
+    _dragOverCount = 0;
+    console.log('[拖拽] 1. 开始拖动图像, id:', id, 'type:', item.type, 'stackId:', _dragSourceStackId, 'pos:', item.x, item.y);
 
     // 创建干净的静态拖拽幽灵图，避免浏览器从动画 DOM 抓取产生残影
     const ghost = document.createElement('img');
@@ -679,6 +681,7 @@ function setupItemDrag() {
   });
 
   surface.addEventListener('dragend', () => {
+    console.log('[拖拽] dragend 触发, _dragSourceId:', _dragSourceId);
     _dragSourceId = null;
     _dragSourceStackId = null;
     _dragSourceChildIndex = -1;
@@ -690,16 +693,11 @@ function setupItemDrag() {
   });
 }
 
-// 碰撞检测：两个元素边界框是否相交
-function checkOverlap(el1, el2) {
-  const rect1 = el1.getBoundingClientRect();
-  const rect2 = el2.getBoundingClientRect();
-  return !(rect2.left > rect1.right || rect2.right < rect1.left || rect2.top > rect1.bottom || rect2.bottom < rect1.top);
-}
-
-// 在 dragover 中检测重叠并高亮
+// 在 dragover 中检测并高亮目标
 function setupOverlapDetection() {
   surface.addEventListener('dragover', e => {
+    const realTarget = document.elementFromPoint(e.clientX, e.clientY);
+    console.log('[拖拽] surface dragover #' + (++_dragOverCount) + ' clientX=' + e.clientX + ' clientY=' + e.clientY + ' _dragSourceId:', _dragSourceId, 'e.target:', (e.target.className || e.target.tagName), 'elementFromPoint:', (realTarget ? (realTarget.className || realTarget.tagName) : 'null'));
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
 
@@ -710,6 +708,7 @@ function setupOverlapDetection() {
 
     let targetEl = e.target.closest('.canvas-item');
     if (!targetEl || targetEl.dataset.itemId === _dragSourceId) {
+      console.log('[拖拽] dragover SKIP: targetEl=' + (targetEl ? targetEl.dataset.itemId : 'null') + ' _dragSourceId=' + _dragSourceId);
       // 清除所有高亮
       document.querySelectorAll('.canvas-item').forEach(el => {
         el.classList.remove('drag-overlap-highlight');
@@ -726,12 +725,9 @@ function setupOverlapDetection() {
     // 有目标元素时清除分离提示
     container.classList.remove('drag-over-detach');
 
-    // 检查是否重叠
-    if (checkOverlap(dragEl, targetEl)) {
-      targetEl.classList.add('drag-overlap-highlight');
-    } else {
-      targetEl.classList.remove('drag-overlap-highlight');
-    }
+    // 光标已在目标元素上方（e.target.closest 验证通过），直接高亮
+    targetEl.classList.add('drag-overlap-highlight');
+    console.log('[拖拽] 2. 图像重合! dragId:', _dragSourceId, 'targetId:', targetEl.dataset.itemId);
   });
 }
 
@@ -749,6 +745,7 @@ function getCanvasCoords(el) {
 // 处理拖拽合并
 function setupDragMerge() {
   surface.addEventListener('drop', async e => {
+    console.log('[拖拽] surface drop 触发, _dragSourceId:', _dragSourceId);
     e.preventDefault();
     // 移除高亮
     document.querySelectorAll('.canvas-item').forEach(el => {
@@ -757,6 +754,7 @@ function setupDragMerge() {
     container.classList.remove('drag-over-detach');
 
     if (!_dragSourceId) return;
+    e.stopPropagation(); // 阻止冒泡到 container，避免 handleMaterialDrop 重复处理
 
     const targetEl = e.target.closest('.canvas-item');
     const dragItem = getState().canvasItems.find(i => i.itemId === _dragSourceId);
@@ -794,9 +792,9 @@ function setupDragMerge() {
       }
     }
 
-    // 检查重叠
+    // 确认源元素仍存在（光标已在目标上方，无需 DOM 矩形重叠检测）
     const dragEl = document.querySelector(`.canvas-item[data-item-id="${_dragSourceId}"]`);
-    if (!dragEl || !checkOverlap(dragEl, targetEl)) return;
+    if (!dragEl) return;
 
     // --- 场景 1：两个 stack 合并 ---
     if (dragItem.type === 'stack' && targetItem.type === 'stack') {
@@ -824,8 +822,10 @@ function setupDragMerge() {
     }
 
     // --- 场景 4：两个普通图像，创建新 stack ---
+    console.log('[拖拽] 3. 松开鼠标，准备清除2张图片并创建 stack, ids:', [_dragSourceId, targetItem.itemId]);
     const coords = getCanvasCoords(targetEl);
     const stack = await createStackFromItems([_dragSourceId, targetItem.itemId], coords.x, coords.y);
+    console.log('[拖拽] 4. stack 创建结果:', stack ? '成功 id=' + stack.id + ' items=' + stack.items.length : '失败');
     showToast(stack ? '已创建堆叠组' : '创建失败', stack ? 'success' : 'error');
     _dragSourceId = null;
   });
@@ -944,15 +944,29 @@ export function initCanvas() {
       e.preventDefault();
     }
   });
+  // 诊断：追踪 drop 事件流向
+  window.addEventListener('drop', (e) => {
+    console.log('[拖拽] WINDOW drop 触发, target:', (e.target.id || e.target.className || e.target.tagName));
+  });
+  document.addEventListener('drop', (e) => {
+    console.log('[拖拽] DOCUMENT drop 触发, target:', (e.target.id || e.target.className || e.target.tagName));
+  }, true); // 捕获阶段
 
   // 处理素材库拖拽到画布
   const handleMaterialDragOver = (e) => {
+    console.log('[拖拽] container dragover 触发 (material), types:', Array.from(e.dataTransfer.types));
     if (e.dataTransfer.types.includes('application/json')) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
     }
   };
   const handleMaterialDrop = async (e) => {
+    // 跳过 canvas 内部拖拽（已由 setupDragMerge 处理）
+    if (_dragSourceId && e.target.closest('#canvasSurface')) {
+      console.log('[拖拽] handleMaterialDrop 跳过 (内部拖拽), _dragSourceId:', _dragSourceId);
+      return;
+    }
+
     const jsonData = e.dataTransfer.getData('application/json');
     if (jsonData) {
       e.preventDefault();
