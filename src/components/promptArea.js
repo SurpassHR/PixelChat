@@ -404,34 +404,33 @@ export function initPromptArea() {
     const resolutionRow = $('#resolutionRow');
 
     if (resolved) {
-      // 同步 family/ratio/resolution 到 state
+      // 同步 family/resolution 到 state
+      // 注意：GPT 模型 ID 不编码比例（所有比例映射到同一 ID），
+      // 只对 gemini/imagen 等编码了比例的模型同步 aspectRatio
       const updates = {
         selectedFamilyId: resolved.familyId,
-        aspectRatio: resolved.ratio,
         selectedResolution: resolved.resolution
       };
+      if (type !== 'gpt') {
+        updates.aspectRatio = resolved.ratio;
+      }
       setState(updates);
     }
 
     // 根据模型类型显示/隐藏配置项
     if (type === 'gpt') {
-      // GPT: 5种比例可见，分辨率隐藏
+      // GPT: 同一模型支持多比例，显示比例选择；分辨率固定隐藏
       if (ratioSection) ratioSection.style.display = '';
       if (resolutionRow) resolutionRow.style.display = 'none';
       $$('.ratio-btn').forEach(btn => { btn.style.display = ''; });
     } else if (type === 'gemini') {
-      // Gemini: 5种比例可见，分辨率可见
-      if (ratioSection) ratioSection.style.display = '';
+      // Gemini: 比例已编码在模型名中，不显示比例选择；分辨率可切换
+      if (ratioSection) ratioSection.style.display = 'none';
       if (resolutionRow) resolutionRow.style.display = '';
-      $$('.ratio-btn').forEach(btn => { btn.style.display = ''; });
     } else if (type === 'imagen') {
-      // Imagen: 仅 9:16 和 16:9 比例可见，分辨率隐藏
-      if (ratioSection) ratioSection.style.display = '';
+      // Imagen: 比例已编码在模型名中，不显示比例和分辨率选择
+      if (ratioSection) ratioSection.style.display = 'none';
       if (resolutionRow) resolutionRow.style.display = 'none';
-      $$('.ratio-btn').forEach(btn => {
-        const ratio = btn.dataset.ratio;
-        btn.style.display = (ratio === '9:16' || ratio === '16:9') ? '' : 'none';
-      });
     } else {
       if (ratioSection) ratioSection.style.display = 'none';
       if (resolutionRow) resolutionRow.style.display = 'none';

@@ -43,10 +43,13 @@ describe('getModelType - 模型类型检测', () => {
 });
 
 describe('supportsAspectRatioSelection - 比例选择能力判断', () => {
-  it('应对支持多比例的图片模型启用比例选择', () => {
+  it('仅对 gpt-image 模型启用比例选择（同一模型支持多种比例）', () => {
     expect(supportsAspectRatioSelection('gpt-image-2')).toBe(true);
-    expect(supportsAspectRatioSelection('gemini-3.0-pro-image-square')).toBe(true);
-    expect(supportsAspectRatioSelection('imagen-4.0-generate-preview-landscape')).toBe(true);
+  });
+
+  it('gemini/imagen 模型比例已编码在模型名中，不启用比例选择', () => {
+    expect(supportsAspectRatioSelection('gemini-3.0-pro-image-square')).toBe(false);
+    expect(supportsAspectRatioSelection('imagen-4.0-generate-preview-landscape')).toBe(false);
   });
 
   it('应对普通或未知模型禁用比例选择', () => {
