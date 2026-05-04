@@ -143,7 +143,7 @@ class GenerateRequestModelTest(unittest.TestCase):
         self.assertEqual(captured['url'], 'https://api.example.test/v1/chat/completions')
         self.assertEqual(captured['headers']['Authorization'], 'Bearer sk-test')
         self.assertEqual(captured['body']['model'], 'gpt-image-2')
-        # gpt-image 使用非流式 prompt/n/size 格式，不带 refs
+        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': '画一只猫'}])
         self.assertEqual(captured['body']['prompt'], '画一只猫')
         self.assertEqual(captured['body']['n'], 1)
         self.assertIn('size', captured['body'])
@@ -173,6 +173,7 @@ class GenerateRequestModelTest(unittest.TestCase):
             server._execute_task(self.task_id)
 
         self.assertEqual(captured['body']['prompt'], '画一只猫 --ar 16:9')
+        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': '画一只猫 --ar 16:9'}])
 
     def test_gpt_image_prompt_does_not_duplicate_same_aspect_ratio(self):
         captured = {}
@@ -200,6 +201,7 @@ class GenerateRequestModelTest(unittest.TestCase):
             server._execute_task(self.task_id)
 
         self.assertEqual(captured['body']['prompt'], '画一只猫 --ar 3:4')
+        self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': '画一只猫 --ar 3:4'}])
 
 
 if __name__ == '__main__':

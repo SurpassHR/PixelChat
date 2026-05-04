@@ -614,6 +614,7 @@ def _execute_task(task_id):
                     prompt = _prompt_with_aspect_ratio(task['prompt'], task.get('aspectRatio'))
                     body = {
                         'model': task['model'],
+                        'messages': [{'role': 'user', 'content': prompt}],
                         'prompt': prompt,
                         'n': 1,
                         'size': image_size
