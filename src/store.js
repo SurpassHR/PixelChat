@@ -2083,25 +2083,13 @@ export async function mergeStacks(sourceStackId, targetStackId) {
 }
 
 export async function removeFromStack(stackId, childIndex, targetX, targetY) {
-  console.log(`[移出Stack调试] 开始移除 stackId=${stackId}, childIndex=${childIndex}`);
   const session = state.sessions[state.currentSessionId];
-  if (!session) {
-    console.error('[移出Stack调试] 会话不存在');
-    return false;
-  }
+  if (!session) return false;
 
   const stack = session.stacks?.find(s => s.id === stackId);
-  if (!stack) {
-    console.error(`[移出Stack调试] 未找到 stack: ${stackId}`);
-    return false;
-  }
-  if (childIndex < 0 || childIndex >= stack.items.length) {
-    console.error(`[移出Stack调试] 索引无效 childIndex=${childIndex}, stack长度=${stack.items.length}`);
-    return false;
-  }
+  if (!stack || childIndex < 0 || childIndex >= stack.items.length) return false;
 
   const removed = stack.items.splice(childIndex, 1)[0];
-  console.log(`[移出Stack调试] 已移除子项, 剩余子项数量: ${stack.items.length}, 被移除图片: ${removed.imageUrl?.slice(0, 60)}`);
 
   // 移出的图片作为新的 dropped image 添加到画布
   if (removed) {
@@ -2129,7 +2117,6 @@ export async function removeFromStack(stackId, childIndex, targetX, targetY) {
     if (!session.droppedImages) session.droppedImages = [];
     session.droppedImages.push(newDropped);
     await forceSaveSessions();  // 立即保存，确保移出操作持久化
-    console.log(`[移出Stack调试] 已添加为独立画布项, dropId=${dropId}`);
   }
 
   // 如果堆叠组只剩 1 张图片，自动解散：将最后一张提升为独立图片
@@ -2159,7 +2146,6 @@ export async function removeFromStack(stackId, childIndex, targetX, targetY) {
     const stackIndex = session.stacks.findIndex(s => s.id === stackId);
     if (stackIndex !== -1) {
       session.stacks.splice(stackIndex, 1);
-      console.log('[移出Stack调试] 堆叠组为空，已删除整个组');
       await forceSaveSessions();
     }
   } else {

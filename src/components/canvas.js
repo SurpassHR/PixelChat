@@ -2,6 +2,7 @@ import { getState, setState, subscribe, addDroppedImage, cancelGeneration, creat
 import { $$ } from '../domHelpers.js';
 import { openImageDetail } from './modal.js';
 import { showToast } from '../toast.js';
+import { showConfirm } from './contextMenu.js';
 
 // 图片模糊状态 (Ctrl+H / Cmd+H 切换)
 function applyImageBlurState(value) {
@@ -77,13 +78,6 @@ export function renderCanvas() {
   const { canvasItems, selectedItemIds } = getState();
 
   console.log('[渲染画布] canvasItems:', canvasItems.length, '个');
-  canvasItems.forEach((it, i) => {
-    console.log(`  [${i}] itemId=${it.itemId} type=${it.type} status=${it.status} generating=${it.generating} imageUrl=${it.imageUrl ? it.imageUrl.slice(0, 60) + '...' : '无'}`);
-    // 调试：打印完整对象以排查 type 问题
-    if (it.type !== 'stack' && it.itemId.startsWith('stack-')) {
-      console.warn(`  警告: 项 ${it.itemId} 的 type 不是 'stack'，实际为`, it.type);
-    }
-  });
 
   surface.innerHTML = '';
 
@@ -398,19 +392,13 @@ async function refreshExpandedView() {
 
 // 批量移出 stack 中的多个子项（按索引，降序排列）
 window.batchRemoveFromExpandedStack = async (stackId, indicesToRemove) => {
-  console.log('[批量移出调试] 开始移除 stackId:', stackId, 'indicesToRemove:', indicesToRemove);
   if (!stackId || !indicesToRemove.length) return;
   // 从大到小排序，避免索引变化
   indicesToRemove.sort((a, b) => b - a);
-  let removedCount = 0;
   for (const idx of indicesToRemove) {
-    console.log('[批量移出调试] 移出索引:', idx);
     await removeFromStack(stackId, idx);
-    removedCount++;
   }
-  // 刷新展开视图
   await refreshExpandedView();
-  console.log(`[批量移出调试] 完成，共移出 ${removedCount} 张图片`);
 };
 
 // 供 contextMenu 调用的刷新函数
@@ -448,6 +436,12 @@ document.addEventListener('keydown', async e => {
   if (!selectedItemIds.length) return;
 
   e.preventDefault(); // Prevent any default browser delete behavior
+
+  const msg = selectedItemIds.length > 1
+    ? `确定要删除选中的 ${selectedItemIds.length} 张图片吗？`
+    : '确定要删除这张图片吗？';
+  const confirmed = await showConfirm(msg);
+  if (!confirmed) return;
 
   // Separate items into temporary expanded items and regular canvas items
   const tempIds = [];
@@ -635,7 +629,6 @@ export async function handlePasteFromClipboard() {
 let _dragSourceId = null;
 let _dragSourceStackId = null;
 let _dragSourceChildIndex = -1;
-let _dragOverCount = 0;
 let _lastDragOverTarget = null;
 let _dragCompletionInProgress = false;
 
@@ -714,8 +707,6 @@ function setupItemDrag() {
 // 在 dragover 中检测并高亮目标
 function setupOverlapDetection() {
   surface.addEventListener('dragover', e => {
-    const realTarget = document.elementFromPoint(e.clientX, e.clientY);
-    console.log('[拖拽] surface dragover #' + (++_dragOverCount) + ' clientX=' + e.clientX + ' clientY=' + e.clientY + ' _dragSourceId:', _dragSourceId, 'e.target:', (e.target.className || e.target.tagName), 'elementFromPoint:', (realTarget ? (realTarget.className || realTarget.tagName) : 'null'));
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
 
@@ -726,7 +717,6 @@ function setupOverlapDetection() {
 
     let targetEl = e.target.closest('.canvas-item');
     if (!targetEl || targetEl.dataset.itemId === _dragSourceId) {
-      console.log('[拖拽] dragover SKIP: targetEl=' + (targetEl ? targetEl.dataset.itemId : 'null') + ' _dragSourceId=' + _dragSourceId);
       // 清除所有高亮
       document.querySelectorAll('.canvas-item').forEach(el => {
         el.classList.remove('drag-overlap-highlight');
@@ -745,7 +735,6 @@ function setupOverlapDetection() {
 
     // 光标已在目标元素上方（e.target.closest 验证通过），直接高亮
     targetEl.classList.add('drag-overlap-highlight');
-    console.log('[拖拽] 2. 图像重合! dragId:', _dragSourceId, 'targetId:', targetEl.dataset.itemId);
   });
 }
 
@@ -819,7 +808,6 @@ async function handleDragComplete(targetEl) {
 // 处理拖拽合并
 function setupDragMerge() {
   surface.addEventListener('drop', async e => {
-    console.log('[拖拽] surface drop 触发, _dragSourceId:', _dragSourceId);
     e.preventDefault();
 
     if (!_dragSourceId || _dragCompletionInProgress) return;
@@ -967,26 +955,16 @@ export function initCanvas() {
       e.preventDefault();
     }
   });
-  // 诊断：document 捕获阶段无条件 preventDefault，确保所有元素都是有效 drop target
+  // document 捕获阶段无条件 preventDefault，确保所有元素都是有效 drop target
+  // 同时追踪 cursor 下方元素用于 dragend 合并回退
   document.addEventListener('dragover', (e) => {
-    _lastDragOverTarget = { el: e.target, tag: e.target.tagName, cls: e.target.className, id: e.target.id, x: e.clientX, y: e.clientY };
+    _lastDragOverTarget = { el: e.target, x: e.clientX, y: e.clientY };
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
   }, true);
-  // 诊断：追踪 drop 事件流向
-  window.addEventListener('drop', (e) => {
-    console.log('[拖拽] WINDOW drop 触发, target:', (e.target.id || e.target.className || e.target.tagName));
-  });
-  document.addEventListener('drop', (e) => {
-    console.log('[拖拽] DOCUMENT drop 捕获, target:', (e.target.id || e.target.className || e.target.tagName), 'clientX:', e.clientX, 'clientY:', e.clientY);
-  }, true);
-  document.addEventListener('drop', (e) => {
-    console.log('[拖拽] DOCUMENT drop 冒泡, target:', (e.target.id || e.target.className || e.target.tagName));
-  });
 
   // 处理素材库拖拽到画布
   const handleMaterialDragOver = (e) => {
-    console.log('[拖拽] container dragover 触发 (material), types:', Array.from(e.dataTransfer.types));
     if (e.dataTransfer.types.includes('application/json')) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
@@ -994,10 +972,7 @@ export function initCanvas() {
   };
   const handleMaterialDrop = async (e) => {
     // 跳过 canvas 内部拖拽（已由 setupDragMerge 处理）
-    if (_dragSourceId && e.target.closest('#canvasSurface')) {
-      console.log('[拖拽] handleMaterialDrop 跳过 (内部拖拽), _dragSourceId:', _dragSourceId);
-      return;
-    }
+    if (_dragSourceId && e.target.closest('#canvasSurface')) return;
 
     const jsonData = e.dataTransfer.getData('application/json');
     if (jsonData) {

@@ -62,6 +62,31 @@ Primary subsystems in [src/main.js](src/main.js):
 - Prompt reuse toggle (`toggleReuse`).
 - Status text updates in top bar (`updateStatus`).
 
+### 5) Canvas component ([src/components/canvas.js](src/components/canvas.js))
+- **Rendering**: `renderCanvas()` rebuilds DOM from `canvasItems` state via `subscribe('canvasItems', ...)`. Items are rendered as flex-wrap children of `#canvasSurface`.
+- **Drag and drop**: HTML5 Drag API via `setupItemDrag()` (dragstart/dragend), `setupOverlapDetection()` (dragover highlight), `setupDragMerge()` (drop → stack merge). Merge uses cursor-position-based target detection (NOT DOM rectangle overlap, which fails in flex layout). The `drop` event may not fire in some browsers, so merge logic also runs in `dragend` via `_lastDragOverTarget` tracking.
+- **External drop**: `setupExternalDrop()` handles files/URLs dropped from outside the browser.
+- **Material drop**: `handleMaterialDrop` on container handles drops from the material library. Uses `_dragSourceId` check to skip internal canvas drags.
+- **Stack system**:
+  - Stack items rendered with thumbnail + `stack-badge` (hidden when count ≤ 1).
+  - Expand stack: double-click → `expandStack()` generates temporary `_expandedItems` in grid layout.
+  - Collapse: `collapseExpanded()` restores normal view.
+  - Auto-dissolve: `removeFromStack()` auto-dissolves when only 1 item remains.
+- **Selection**: Click/Ctrl+click/Shift+click multi-select, rubber-band selection. Selection state deferred via `setTimeout(0)` to avoid interfering with drag initiation.
+- **Pan/zoom**: Viewport transform via mousedown/mousemove/mouseup handlers on container.
+
+### 6) Context menu ([src/components/contextMenu.js](src/components/contextMenu.js))
+- Right-click triggers `showMenu(e, context, data)` with contexts: `canvas-image`, `material`, `canvas-empty`.
+- Canvas-image actions: copy, add to materials, copy prompt, download, make stack, remove from stack, dissolve stack, delete.
+- Menu items statically defined in [index.html](index.html) with `data-ctx` and `data-action` attributes, visibility toggled dynamically.
+
+### 7) Store — Stack operations ([src/store.js](src/store.js))
+- `createStackFromItems(itemIds, x, y)` — remove items from source, create `session.stacks[]` entry.
+- `addToStack(stackId, itemId)` — add item to existing stack.
+- `mergeStacks(sourceId, targetId)` — merge all children from one stack into another.
+- `removeFromStack(stackId, childIndex, x, y)` — extract item to standalone; auto-dissolves when only 1 remains.
+- `dissolveStack(stackId)` — convert all stack children to standalone items, delete stack.
+
 ## Tooling notes
 
 - Vite config is in [vite.config.js](vite.config.js) (dev server bound to `0.0.0.0:4173`).
@@ -70,5 +95,4 @@ Primary subsystems in [src/main.js](src/main.js):
 
 ## Repository constraints
 
-- No README.md, Cursor rules, or Copilot instruction files are present.
 - No lint/test tooling is configured; validation is currently manual UI behavior check + `npm run build`.

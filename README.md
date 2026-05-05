@@ -125,11 +125,15 @@ The app supports any model that returns an image in one of these formats:
 
 ### Canvas
 
+- **Drag & merge**: Drag one image onto another to automatically create a **stack group**. Drag onto an existing stack to add to it, or drag a stack onto another to merge them.
+- **Stack management**: Double‑click a stack to expand and view individual images. Right‑click a stack to **dissolve** it (convert all images back to standalone items). Right‑click an expanded item to remove it from the stack.
 - Right‑click any generated image to open a context menu with options to:
   - Copy image to clipboard
   - Download image
   - Add to material library
-  - Open in new tab
+  - Create stack (select 2+ images first)
+  - Dissolve stack
+  - Delete
 
 ## API Endpoints (Summary)
 

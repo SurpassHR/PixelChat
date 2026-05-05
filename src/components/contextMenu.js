@@ -7,6 +7,65 @@ const menu = $('#contextMenu');
 let currentContext = null;
 let currentData = null;
 
+export function showConfirm(message) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;';
+
+    const dialog = document.createElement('div');
+    dialog.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px 28px;max-width:360px;width:90%;text-align:center;';
+
+    const p = document.createElement('p');
+    p.textContent = message;
+    p.style.cssText = 'font-size:15px;color:var(--text);margin:0 0 20px 0;line-height:1.5;';
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:12px;justify-content:center;';
+
+    const yesBtn = document.createElement('button');
+    yesBtn.textContent = '是';
+    yesBtn.style.cssText = 'padding:8px 28px;border-radius:8px;border:1px solid #d9534f;font-size:14px;cursor:pointer;background:#d9534f;color:#fff;';
+
+    const noBtn = document.createElement('button');
+    noBtn.textContent = '否';
+    noBtn.style.cssText = 'padding:8px 28px;border-radius:8px;border:1px solid var(--border);font-size:14px;cursor:pointer;background:var(--surface);color:var(--text);';
+
+    actions.appendChild(yesBtn);
+    actions.appendChild(noBtn);
+    dialog.appendChild(p);
+    dialog.appendChild(actions);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    yesBtn.focus();
+
+    function cleanup() {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+    }
+
+    function onKey(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        cleanup();
+        resolve(true);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cleanup();
+        resolve(false);
+      }
+    }
+
+    yesBtn.addEventListener('click', () => { cleanup(); resolve(true); });
+    noBtn.addEventListener('click', () => { cleanup(); resolve(false); });
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) { cleanup(); resolve(false); }
+    });
+
+    document.addEventListener('keydown', onKey);
+  });
+}
+
 export function showMenu(e, context, data) {
   e.preventDefault();
   currentContext = context;
@@ -194,6 +253,11 @@ export async function handleAction(action) {
     case 'deleteImage': {
       const itemIds = getTargetItemIds();
       if (itemIds.length === 0) break;
+      const msg = itemIds.length > 1
+        ? `确定要删除选中的 ${itemIds.length} 张图片吗？`
+        : '确定要删除这张图片吗？';
+      const confirmed = await showConfirm(msg);
+      if (!confirmed) break;
       // Sort by messageIndex descending so that earlier deletions don't shift
       // the indices that later deletions rely on within session.messages.
       const { canvasItems } = getState();
@@ -251,8 +315,6 @@ export async function handleAction(action) {
         }
         indicesToRemove.sort((a, b) => b - a);
         
-        console.log(`[右键移出] 准备从 stack ${stackId} 移出索引:`, indicesToRemove);
-
         // 使用 batchRemoveFromExpandedStack 确保展开视图即时刷新
         if (window.batchRemoveFromExpandedStack) {
           await window.batchRemoveFromExpandedStack(stackId, indicesToRemove);
@@ -357,7 +419,13 @@ export async function handleAction(action) {
         targetIds = [currentData.materialId];
       }
       if (targetIds.length === 0) break;
-      
+
+      const msg = targetIds.length > 1
+        ? `确定要从素材库删除 ${targetIds.length} 张图片吗？`
+        : '确定要从素材库删除这张图片吗？';
+      const confirmed = await showConfirm(msg);
+      if (!confirmed) break;
+
       let removedCount = 0;
       for (const id of targetIds) {
         removeMaterial(id);
