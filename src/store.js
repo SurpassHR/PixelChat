@@ -1997,27 +1997,28 @@ export async function createStackFromItems(itemIds, x, y) {
   console.log('[createStackFromItems] 子项数量:', children.length);
 
   // 从源数据中删除这些项
-  for (const id of itemsToRemove) {
-    const canvasItem = state.canvasItems.find(i => i.itemId === id);
-    if (canvasItem) {
-      if (canvasItem.dropId) {
-        const before = session.droppedImages?.length || 0;
-        session.droppedImages = session.droppedImages.filter(d => d.id !== canvasItem.dropId);
-        console.log(`[createStackFromItems] 从 droppedImages 删除项 ${id}, 原数量 ${before}, 现数量 ${session.droppedImages?.length}`);
-      } else if (canvasItem.messageIndex >= 0) {
-        const idx = canvasItem.messageIndex;
-        const userIdx = idx - 1;
-        console.log(`[createStackFromItems] 从 messages 删除项 ${id}, index=${idx}`);
-        if (userIdx >= 0 && session.messages[userIdx]?.role === 'user') {
-          session.messages.splice(userIdx, 2);
-        } else {
-          session.messages.splice(idx, 1);
-        }
-      } else {
-        console.warn('[createStackFromItems] 未知类型的 canvasItem:', canvasItem);
-      }
+  const canvasItemsToRemove = itemsToRemove
+    .map(id => state.canvasItems.find(i => i.itemId === id))
+    .filter(Boolean);
+
+  for (const canvasItem of canvasItemsToRemove.filter(item => item.dropId)) {
+    const before = session.droppedImages?.length || 0;
+    session.droppedImages = session.droppedImages.filter(d => d.id !== canvasItem.dropId);
+    console.log(`[createStackFromItems] 从 droppedImages 删除项 ${canvasItem.itemId}, 原数量 ${before}, 现数量 ${session.droppedImages?.length}`);
+  }
+
+  const messageItemsToRemove = canvasItemsToRemove
+    .filter(item => item.messageIndex >= 0)
+    .sort((a, b) => b.messageIndex - a.messageIndex);
+
+  for (const canvasItem of messageItemsToRemove) {
+    const idx = canvasItem.messageIndex;
+    const userIdx = idx - 1;
+    console.log(`[createStackFromItems] 从 messages 删除项 ${canvasItem.itemId}, index=${idx}`);
+    if (userIdx >= 0 && session.messages[userIdx]?.role === 'user') {
+      session.messages.splice(userIdx, 2);
     } else {
-      console.warn('[createStackFromItems] 未找到 canvasItem 用于删除:', id);
+      session.messages.splice(idx, 1);
     }
   }
 
@@ -2034,7 +2035,7 @@ export async function createStackFromItems(itemIds, x, y) {
   if (!session.stacks) session.stacks = [];
   session.stacks.push(stack);
   console.log('[createStackFromItems] 已添加 stack, 当前 stacks 数量:', session.stacks.length);
-  saveSessions();
+  await forceSaveSessions();
 
   // 重建画布
   console.log('[createStackFromItems] 准备重建画布');

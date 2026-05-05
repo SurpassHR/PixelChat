@@ -117,13 +117,8 @@ export function renderCanvas() {
     el.dataset.itemId = item.itemId;
     if (isTempExpanded) {
       el.dataset.tempStackId = _expandedStackId;
-      // 从原始 stack 中查找子项索引
-      const stackItem = _originalStackItem;
-      if (stackItem && stackItem.items) {
-        const childIndex = stackItem.items.findIndex(child => child.imageUrl === item.imageUrl);
-        if (childIndex !== -1) {
-          el.dataset.childIndex = childIndex;
-        }
+      if (typeof item._childIndex === 'number') {
+        el.dataset.childIndex = String(item._childIndex);
       }
     }
     el.draggable = !item.generating;
@@ -642,6 +637,19 @@ let _dragSourceStackId = null;
 let _dragSourceChildIndex = -1;
 let _dragOverCount = 0;
 let _lastDragOverTarget = null;
+let _dragCompletionInProgress = false;
+
+function resetDragState() {
+  _lastDragOverTarget = null;
+  _dragSourceId = null;
+  _dragSourceStackId = null;
+  _dragSourceChildIndex = -1;
+  _dragCompletionInProgress = false;
+  document.querySelectorAll('.canvas-item').forEach(el => {
+    el.classList.remove('drag-overlap-highlight');
+  });
+  container.classList.remove('drag-over-detach');
+}
 
 function setupItemDrag() {
   surface.addEventListener('dragstart', e => {
@@ -661,6 +669,7 @@ function setupItemDrag() {
     _dragSourceId = id;
     _dragSourceStackId = item._tempParentStackId || null;
     _dragSourceChildIndex = typeof item._childIndex === 'number' ? item._childIndex : -1;
+    _dragCompletionInProgress = false;
     _dragOverCount = 0;
     console.log('[拖拽] 1. 开始拖动图像, id:', id, 'type:', item.type, 'stackId:', _dragSourceStackId, 'pos:', item.x, item.y);
 
@@ -686,23 +695,19 @@ function setupItemDrag() {
 
   surface.addEventListener('dragend', async () => {
     console.log('[拖拽] dragend 触发, _dragSourceId:', _dragSourceId, '最后dragover目标:', _lastDragOverTarget?.tag, _lastDragOverTarget?.cls, 'pos:', _lastDragOverTarget?.x, _lastDragOverTarget?.y);
-    // drop 事件可能不触发（浏览器兼容性问题），在 dragend 中完成合并
-    if (_dragSourceId && _lastDragOverTarget) {
-      const targetEl = _lastDragOverTarget.el.closest('.canvas-item');
-      if (targetEl) {
-        console.log('[拖拽] dragend 中执行合并, targetId:', targetEl.dataset.itemId);
-        await handleDragComplete(targetEl);
+    try {
+      // drop 事件可能不触发（浏览器兼容性问题），在 dragend 中完成合并
+      if (!_dragCompletionInProgress && _dragSourceId && _lastDragOverTarget) {
+        _dragCompletionInProgress = true;
+        const targetEl = _lastDragOverTarget.el.closest('.canvas-item');
+        if (targetEl) {
+          console.log('[拖拽] dragend 中执行合并, targetId:', targetEl.dataset.itemId);
+          await handleDragComplete(targetEl);
+        }
       }
+    } finally {
+      resetDragState();
     }
-    _lastDragOverTarget = null;
-    _dragSourceId = null;
-    _dragSourceStackId = null;
-    _dragSourceChildIndex = -1;
-    // 移除所有高亮
-    document.querySelectorAll('.canvas-item').forEach(el => {
-      el.classList.remove('drag-overlap-highlight');
-    });
-    container.classList.remove('drag-over-detach');
   });
 }
 
@@ -816,34 +821,36 @@ function setupDragMerge() {
   surface.addEventListener('drop', async e => {
     console.log('[拖拽] surface drop 触发, _dragSourceId:', _dragSourceId);
     e.preventDefault();
-    // 移除高亮
-    document.querySelectorAll('.canvas-item').forEach(el => {
-      el.classList.remove('drag-overlap-highlight');
-    });
-    container.classList.remove('drag-over-detach');
 
-    if (!_dragSourceId) return;
+    if (!_dragSourceId || _dragCompletionInProgress) return;
     e.stopPropagation(); // 阻止冒泡到 container，避免 handleMaterialDrop 重复处理
+    _dragCompletionInProgress = true;
 
-    // --- 场景：拖拽到空白区域 —— 分离（展开模式下的临时项） ---
-    const targetEl = e.target.closest('.canvas-item');
-    if (!targetEl && _dragSourceStackId && _dragSourceChildIndex >= 0) {
-      const coords = getCanvasCoords(e.target.closest('#canvasSurface') || surface);
-      const success = await removeFromStack(_dragSourceStackId, _dragSourceChildIndex, coords.x, coords.y);
-      if (success) {
-        await refreshExpandedView();
-        showToast('已从堆叠组移出', 'success');
-      } else {
-        showToast('移出失败', 'error');
+    try {
+      // 移除高亮
+      document.querySelectorAll('.canvas-item').forEach(el => {
+        el.classList.remove('drag-overlap-highlight');
+      });
+      container.classList.remove('drag-over-detach');
+
+      // --- 场景：拖拽到空白区域 —— 分离（展开模式下的临时项） ---
+      const targetEl = e.target.closest('.canvas-item');
+      if (!targetEl && _dragSourceStackId && _dragSourceChildIndex >= 0) {
+        const coords = getCanvasCoords(e.target.closest('#canvasSurface') || surface);
+        const success = await removeFromStack(_dragSourceStackId, _dragSourceChildIndex, coords.x, coords.y);
+        if (success) {
+          await refreshExpandedView();
+          showToast('已从堆叠组移出', 'success');
+        } else {
+          showToast('移出失败', 'error');
+        }
+        return;
       }
-      _dragSourceId = null;
-      _dragSourceStackId = null;
-      _dragSourceChildIndex = -1;
-      return;
-    }
 
-    await handleDragComplete(targetEl);
-    _dragSourceId = null;
+      await handleDragComplete(targetEl);
+    } finally {
+      resetDragState();
+    }
   });
 }
 
