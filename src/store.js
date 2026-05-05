@@ -954,24 +954,7 @@ export async function rebuildCanvasFromSession() {
   // 处理 droppedImages
   if (session.droppedImages) {
     session.droppedImages.forEach(img => {
-      items.push({
-        itemId: 'drop-' + img.id,
-        messageIndex: -1,
-        imageUrl: resolveBackendUrl(img.imageUrl),
-        prompt: '',
-        refImages: [],
-        x: img.x != null ? img.x : 50,
-        y: img.y != null ? img.y : 50,
-        width: img.width || 300,
-        height: img.height || 300,
-        generating: false,
-        status: 'ok',
-        error: '',
-        dropId: img.id,
-        dataHash: img.dataHash,
-        canvasSeq: img.canvasSeq,
-        type: 'image'
-      });
+      items.push(buildDroppedCanvasItemFromRecord(img));
     });
   }
 
@@ -1028,6 +1011,55 @@ export async function rebuildCanvasFromSession() {
 
   state.canvasItems = items;
   console.log('[重建画布] 完成, canvasItems:', items.length, '个, 顺序:', items.map(it => `${it.itemId}(seq=${it.canvasSeq})`).join(', '));
+}
+
+function buildDroppedCanvasItemFromRecord(img) {
+  return {
+    itemId: 'drop-' + img.id,
+    messageIndex: -1,
+    imageUrl: resolveBackendUrl(img.imageUrl),
+    prompt: img.prompt || '',
+    refImages: img.refImages || [],
+    x: img.x != null ? img.x : 50,
+    y: img.y != null ? img.y : 50,
+    width: img.width || 300,
+    height: img.height || 300,
+    generating: false,
+    status: img.status || 'ok',
+    error: img.error || '',
+    model: img.model || '',
+    provider: img.provider || '',
+    createdAt: img.createdAt || null,
+    durationMs: img.durationMs ?? null,
+    resolution: img.resolution || null,
+    dropId: img.id,
+    dataHash: img.dataHash,
+    canvasSeq: img.canvasSeq,
+    type: 'image'
+  };
+}
+
+function buildDroppedImageRecordFromStackChild(session, child, x, y) {
+  const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
+  return {
+    id: generateId(),
+    imageUrl: child.imageUrl,
+    dataHash: child.dataHash || '',
+    canvasSeq: seq,
+    x,
+    y,
+    width: child.width || 300,
+    height: child.height || 300,
+    prompt: child.prompt || '',
+    refImages: child.refImages || [],
+    status: child.status || 'ok',
+    error: child.error || '',
+    model: child.model || '',
+    provider: child.provider || '',
+    createdAt: child.createdAt || null,
+    durationMs: child.durationMs ?? null,
+    resolution: child.resolution || null
+  };
 }
 
 // --------------------------------------------------------------
@@ -2090,10 +2122,11 @@ export async function removeFromStack(stackId, childIndex, targetX, targetY) {
   if (!stack || childIndex < 0 || childIndex >= stack.items.length) return false;
 
   const removed = stack.items.splice(childIndex, 1)[0];
+  if (!session.droppedImages) session.droppedImages = [];
 
-  // 移出的图片作为新的 dropped image 添加到画布
   if (removed) {
-    let newX, newY;
+    let newX;
+    let newY;
     if (typeof targetX === 'number' && typeof targetY === 'number') {
       newX = targetX;
       newY = targetY;
@@ -2102,56 +2135,26 @@ export async function removeFromStack(stackId, childIndex, targetX, targetY) {
       newX = cx + (Math.random() * 100 - 50);
       newY = cy + (Math.random() * 100 - 50);
     }
-    const dropId = generateId();
-    const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
-    const newDropped = {
-      id: dropId,
-      imageUrl: removed.imageUrl,
-      dataHash: removed.dataHash || '',
-      canvasSeq: seq,
-      x: newX,
-      y: newY,
-      width: 300,
-      height: 300
-    };
-    if (!session.droppedImages) session.droppedImages = [];
-    session.droppedImages.push(newDropped);
-    await forceSaveSessions();  // 立即保存，确保移出操作持久化
+    session.droppedImages.push(buildDroppedImageRecordFromStackChild(session, removed, newX, newY));
   }
 
-  // 如果堆叠组只剩 1 张图片，自动解散：将最后一张提升为独立图片
   if (stack.items.length === 1) {
     const lastItem = stack.items[0];
     const { cx, cy } = getViewportCenter();
-    const dropId = generateId();
-    const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
-    const newDropped = {
-      id: dropId,
-      imageUrl: lastItem.imageUrl,
-      dataHash: lastItem.dataHash || '',
-      canvasSeq: seq,
-      x: typeof targetX === 'number' ? targetX : cx + (Math.random() * 100 - 50),
-      y: typeof targetY === 'number' ? targetY : cy + (Math.random() * 100 - 50),
-      width: 300,
-      height: 300
-    };
-    if (!session.droppedImages) session.droppedImages = [];
-    session.droppedImages.push(newDropped);
+    const newX = typeof targetX === 'number' ? targetX : cx + (Math.random() * 100 - 50);
+    const newY = typeof targetY === 'number' ? targetY : cy + (Math.random() * 100 - 50);
+    session.droppedImages.push(buildDroppedImageRecordFromStackChild(session, lastItem, newX, newY));
     const stackIndex = session.stacks.findIndex(s => s.id === stackId);
     if (stackIndex !== -1) session.stacks.splice(stackIndex, 1);
     console.log('[移除Stack] 堆叠组仅剩1张，自动解散，图片提升为独立项');
-    await forceSaveSessions();
   } else if (stack.items.length === 0) {
-    // 为空则删除整个堆叠组
     const stackIndex = session.stacks.findIndex(s => s.id === stackId);
     if (stackIndex !== -1) {
       session.stacks.splice(stackIndex, 1);
-      await forceSaveSessions();
     }
-  } else {
-    await forceSaveSessions();
   }
 
+  await forceSaveSessions();
   await rebuildCanvasFromSession();
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
   return true;
@@ -2164,20 +2167,22 @@ export async function dissolveStack(stackId) {
 
   const stackIndex = session.stacks?.findIndex(s => s.id === stackId);
   if (stackIndex === undefined || stackIndex === -1) {
-    console.error('[解散Stack] 未找到 stack:', stackId);
-    return false;
-  }
-
-  const stack = session.stacks[stackIndex];
-  const children = [...stack.items];
-  if (children.length === 0) {
-    session.stacks.splice(stackIndex, 1);
-    await saveSessions();
-    await rebuildCanvasFromSession();
+    console.warn('[解散Stack] stack 已不存在，按幂等成功处理:', stackId);
     return true;
   }
 
-  // 以 stack 位置为中心，将每个子图片分散放置
+  const stack = session.stacks[stackIndex];
+  const children = [...(stack.items || [])];
+  if (!session.droppedImages) session.droppedImages = [];
+
+  if (children.length === 0) {
+    session.stacks.splice(stackIndex, 1);
+    await forceSaveSessions();
+    await rebuildCanvasFromSession();
+    if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
+    return true;
+  }
+
   const baseX = stack.x || 100;
   const baseY = stack.y || 100;
   const cols = 3;
@@ -2185,27 +2190,21 @@ export async function dissolveStack(stackId) {
   const width = 300;
   const height = 300;
 
-  if (!session.droppedImages) session.droppedImages = [];
-  children.forEach((child, idx) => {
+  const droppedChildren = children.map((child, idx) => {
     const col = idx % cols;
     const row = Math.floor(idx / cols);
-    const dropId = generateId();
-    const seq = session._canvasSeq = (session._canvasSeq || 0) + 1;
-    session.droppedImages.push({
-      id: dropId,
-      imageUrl: child.imageUrl,
-      dataHash: child.dataHash || '',
-      canvasSeq: seq,
-      x: baseX + col * (width + spacing),
-      y: baseY + row * (height + spacing),
-      width: 300,
-      height: 300
-    });
+    return buildDroppedImageRecordFromStackChild(
+      session,
+      child,
+      baseX + col * (width + spacing),
+      baseY + row * (height + spacing)
+    );
   });
 
+  session.droppedImages.push(...droppedChildren);
   session.stacks.splice(stackIndex, 1);
   console.log('[解散Stack] 已解散堆叠组，释放', children.length, '张图片');
-  await saveSessions();
+  await forceSaveSessions();
   await rebuildCanvasFromSession();
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());
   return true;

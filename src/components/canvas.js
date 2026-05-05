@@ -404,6 +404,7 @@ window.batchRemoveFromExpandedStack = async (stackId, indicesToRemove) => {
     await removeFromStack(stackId, idx);
   }
   await refreshExpandedView();
+  setState({ selectedItemIds: [] });
 };
 
 // 供 contextMenu 调用的刷新函数
@@ -419,6 +420,7 @@ function collapseExpanded() {
   // 同步到全局
   window.__expandedStackId = null;
   window.__expandedItems = [];
+  setState({ selectedItemIds: [] });
 
   renderCanvas();
 }
