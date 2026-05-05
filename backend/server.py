@@ -363,7 +363,7 @@ def _init_tasks_table():
 
 def _load_tasks():
     conn = get_db()
-    rows = conn.execute('SELECT * FROM tasks ORDER BY created_at DESC LIMIT 100').fetchall()
+    rows = conn.execute('SELECT * FROM tasks ORDER BY created_at DESC').fetchall()
     now = time.time()
     for row in rows:
         task = dict(row)
@@ -1148,8 +1148,7 @@ def list_tasks():
             entry['refs'] = [{'name': r.get('name', '')} for r in entry.get('refs', [])]
             result.append(entry)
         result.sort(key=lambda t: t['created_at'], reverse=True)
-    return jsonify(result[:50])
-
+    return jsonify(result)
 @app.route('/api/tasks/<task_id>/cancel', methods=['POST'])
 def cancel_task(task_id):
     with _tasks_lock:

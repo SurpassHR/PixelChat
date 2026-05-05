@@ -11,8 +11,13 @@ function applyImageBlurState(value) {
   document.body.classList.toggle('images-blurred', v);
 }
 
+function getCurrentImageBlurState() {
+  const session = getState().sessions[getState().currentSessionId];
+  return session?.imagesBlurred ?? getState().imagesBlurred;
+}
+
 function restoreImageBlurState() {
-  applyImageBlurState(!!getState().imagesBlurred);
+  applyImageBlurState(!!getCurrentImageBlurState());
 }
 
 // 展开状态
@@ -631,6 +636,7 @@ let _dragSourceStackId = null;
 let _dragSourceChildIndex = -1;
 let _lastDragOverTarget = null;
 let _dragCompletionInProgress = false;
+let _dragOverCount = 0;
 
 function resetDragState() {
   _lastDragOverTarget = null;
@@ -1038,7 +1044,7 @@ export function initCanvas() {
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       e.preventDefault();
-      const newValue = !getState().imagesBlurred;
+      const newValue = !getCurrentImageBlurState();
       applyImageBlurState(newValue);
       setState({ imagesBlurred: newValue, statusText: newValue ? '图片已隐藏 (Ctrl+H 恢复)' : '' });
     }

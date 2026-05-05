@@ -328,5 +328,30 @@ class GenerateRequestModelTest(unittest.TestCase):
         self.assertEqual(captured['body']['messages'], [{'role': 'user', 'content': '画一只猫'}])
 
 
-if __name__ == '__main__':
-    unittest.main()
+class TaskListingIntegrityTest(unittest.TestCase):
+    def test_list_tasks_returns_all_tasks_in_desc_order(self):
+        tasks = {
+            f'task-{i}': {
+                'id': f'task-{i}',
+                'status': 'completed',
+                'prompt': f'prompt-{i}',
+                'model': 'gpt-image-2',
+                'provider': 'custom',
+                'refs': [{'name': f'ref-{i}.png', 'dataUrl': 'data:image/png;base64,AAAA'}],
+                'image_url': f'/api/images/{i}',
+                'error': '',
+                'thinking': '',
+                'retry_count': 0,
+                'created_at': i,
+                'updated_at': i,
+            }
+            for i in range(55)
+        }
+
+        with patch.dict(server._tasks, tasks, clear=True):
+            result = server.list_tasks()
+
+        self.assertEqual(len(result), 55)
+        self.assertEqual(result[0]['id'], 'task-54')
+        self.assertEqual(result[-1]['id'], 'task-0')
+        self.assertEqual(result[0]['refs'], [{'name': 'ref-54.png'}])

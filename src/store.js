@@ -253,6 +253,11 @@ export function setState(partial) {
   for (const key of Object.keys(partial)) {
     state[key] = partial[key];
   }
+  if ('imagesBlurred' in partial) {
+    const session = state.sessions[state.currentSessionId];
+    if (session) session.imagesBlurred = state.imagesBlurred;
+    saveSessions();
+  }
   if ('selectedModelId' in partial || 'selectedProvider' in partial || 'selectedModelKey' in partial || 'reusePrompt' in partial || 'reuseRef' in partial || 'batchSize' in partial || 'retryCount' in partial || 'aspectRatio' in partial || 'selectedFamilyId' in partial || 'selectedResolution' in partial || 'imagesBlurred' in partial) {
     saveSettings();
   }
@@ -1595,7 +1600,12 @@ async function _reconcilePendingTasks() {
       const backendTask = backendTaskMap[pt.taskId];
 
       if (!backendTask) {
-        // 后端已清理此任务（可能超时被清理），从 pendingTasks 移除
+        // 后端已清理此任务（可能超时被清理），从 pendingTasks 移除；
+        // 但如果本次列表疑似被截断，先保留等待下一次完整同步。
+        if (backendTasks.length >= 50) {
+          remaining.push(pt);
+          continue;
+        }
         console.log('[同步] 清理孤儿 pendingTask:', pt.taskId);
         anyChanges = true;
         continue;
