@@ -284,9 +284,13 @@ export async function handleAction(action) {
       const vp = getState().viewport;
       const canvasX = (left - rect.left - vp.panX) / vp.zoom;
       const canvasY = (top - rect.top - vp.panY) / vp.zoom;
-      createStackFromItems(selectedItemIds, Math.max(0, canvasX - 150), Math.max(0, canvasY - 150));
-      setState({ selectedItemIds: [] });
-      showToast('已创建堆叠组', 'success');
+      const stack = await createStackFromItems(selectedItemIds, Math.max(0, canvasX - 150), Math.max(0, canvasY - 150));
+      if (stack) {
+        setState({ selectedItemIds: [] });
+        showToast('已创建堆叠组', 'success');
+      } else {
+        showToast('创建堆叠组失败', 'error');
+      }
       break;
     }
     case 'removeFromStack': {

@@ -1969,57 +1969,49 @@ export async function createStackFromItems(itemIds, x, y) {
     return null;
   }
 
-  // 从当前 canvasItems 中获取要堆叠的项数据
-  const children = [];
-  const itemsToRemove = [];
+  const canvasOrder = new Map(state.canvasItems.map((item, index) => [item.itemId, index]));
+  const selectedItems = [];
   for (const id of itemIds) {
     const canvasItem = state.canvasItems.find(i => i.itemId === id);
     if (!canvasItem) {
       console.warn('[createStackFromItems] 未找到 canvasItem, id:', id);
-      continue;
+      return null;
     }
-    // 复制必要字段（避免引用）
-    const child = {
-      imageUrl: canvasItem.imageUrl,
-      prompt: canvasItem.prompt || '',
-      refImages: canvasItem.refImages || [],
-      x: canvasItem.x,
-      y: canvasItem.y,
-      width: canvasItem.width,
-      height: canvasItem.height,
-      status: canvasItem.status || 'ok',
-      error: canvasItem.error || '',
-      generating: false,
-      model: canvasItem.model || '',
-      provider: canvasItem.provider || '',
-      createdAt: canvasItem.createdAt || null,
-      durationMs: canvasItem.durationMs ?? null,
-      resolution: canvasItem.resolution || null,
-    };
-    children.push(child);
-    itemsToRemove.push(id);
-    console.log('[createStackFromItems] 收集子项:', child.imageUrl?.slice(0, 60));
-  }
-  if (children.length === 0) {
-    console.error('[createStackFromItems] 没有有效的子项');
-    return null;
-  }
-  console.log('[createStackFromItems] 子项数量:', children.length);
-
-  // 从源数据中删除这些项
-  const canvasItemsToRemove = itemsToRemove
-    .map(id => state.canvasItems.find(i => i.itemId === id))
-    .filter(Boolean);
-
-  for (const canvasItem of canvasItemsToRemove.filter(item => item.dropId)) {
-    const before = session.droppedImages?.length || 0;
-    session.droppedImages = session.droppedImages.filter(d => d.id !== canvasItem.dropId);
-    console.log(`[createStackFromItems] 从 droppedImages 删除项 ${canvasItem.itemId}, 原数量 ${before}, 现数量 ${session.droppedImages?.length}`);
+    selectedItems.push(canvasItem);
   }
 
-  const messageItemsToRemove = canvasItemsToRemove
+  selectedItems.sort((a, b) => {
+    return (canvasOrder.get(a.itemId) ?? Number.MAX_SAFE_INTEGER) - (canvasOrder.get(b.itemId) ?? Number.MAX_SAFE_INTEGER);
+  });
+
+  const children = selectedItems.map(canvasItem => ({
+    imageUrl: canvasItem.imageUrl,
+    prompt: canvasItem.prompt || '',
+    refImages: canvasItem.refImages || [],
+    x: canvasItem.x,
+    y: canvasItem.y,
+    width: canvasItem.width,
+    height: canvasItem.height,
+    status: canvasItem.status || 'ok',
+    error: canvasItem.error || '',
+    generating: false,
+    model: canvasItem.model || '',
+    provider: canvasItem.provider || '',
+    createdAt: canvasItem.createdAt || null,
+    durationMs: canvasItem.durationMs ?? null,
+    resolution: canvasItem.resolution || null,
+  }));
+
+  const dropIdsToRemove = selectedItems.filter(item => item.dropId).map(item => item.dropId);
+  const messageItemsToRemove = selectedItems
     .filter(item => item.messageIndex >= 0)
     .sort((a, b) => b.messageIndex - a.messageIndex);
+
+  for (const dropId of dropIdsToRemove) {
+    const before = session.droppedImages?.length || 0;
+    session.droppedImages = (session.droppedImages || []).filter(d => d.id !== dropId);
+    console.log(`[createStackFromItems] 从 droppedImages 删除项 ${dropId}, 原数量 ${before}, 现数量 ${session.droppedImages?.length || 0}`);
+  }
 
   for (const canvasItem of messageItemsToRemove) {
     const idx = canvasItem.messageIndex;
@@ -2032,7 +2024,6 @@ export async function createStackFromItems(itemIds, x, y) {
     }
   }
 
-  // 创建堆叠组
   const stackId = generateId();
   const stack = {
     id: stackId,
@@ -2047,7 +2038,6 @@ export async function createStackFromItems(itemIds, x, y) {
   console.log('[createStackFromItems] 已添加 stack, 当前 stacks 数量:', session.stacks.length);
   await forceSaveSessions();
 
-  // 重建画布
   console.log('[createStackFromItems] 准备重建画布');
   await rebuildCanvasFromSession();
   if (listeners['canvasItems']) listeners['canvasItems'].forEach(fn => fn());

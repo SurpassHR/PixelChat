@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { getState, setState, addDroppedImage, removeCanvasItemById, rebuildCanvasFromSession, forceSaveSessions } from '../store.js';
+import { getState, setState, addDroppedImage, removeCanvasItemById, rebuildCanvasFromSession, forceSaveSessions, createStackFromItems } from '../store.js';
 
 // 模拟 fetch 和 localStorage
 global.fetch = vi.fn();
@@ -69,22 +69,42 @@ describe('多选删除持久化测试', () => {
     expect(getState().canvasItems.length).toBe(0);
   });
 
-  it('删除过程中部分失败不应影响其他删除', async () => {
-    const sessionId = 'test-session-2';
+  it('创建 stack 时应保持画布顺序而不是选择顺序', async () => {
+    const sessionId = 'stack-order-session';
     getState().sessions[sessionId] = { id: sessionId, stacks: [], droppedImages: [] };
     getState().currentSessionId = sessionId;
 
-    const img1Url = await createTestImageDataUrl('#ff0000');
-    const img2Url = await createTestImageDataUrl('#00ff00');
+    const img1Url = await createTestImageDataUrl('#111111');
+    const img2Url = await createTestImageDataUrl('#222222');
+    const img3Url = await createTestImageDataUrl('#333333');
     const img1 = await addDroppedImage(img1Url);
     const img2 = await addDroppedImage(img2Url);
-    expect(getState().canvasItems.length).toBe(2);
+    const img3 = await addDroppedImage(img3Url);
 
-    // 手动损坏第二个图片的删除（模拟删除失败的情况不实际发生，但确保不会中断）
-    // 这里只是验证串行删除不会因为一个失败而中断后续
-    await removeCanvasItemById(img1.itemId);
-    await removeCanvasItemById(img2.itemId);
-    await rebuildCanvasFromSession();
-    expect(getState().canvasItems.length).toBe(0);
+    const result = await createStackFromItems([img3.itemId, img1.itemId, img2.itemId], 10, 20);
+
+    expect(result).not.toBeNull();
+    expect(result.items.map(item => item.x)).toEqual([50, 80, 110]);
+  });
+
+  it('创建 stack 时不应部分迁移已选图像', async () => {
+
+    const sessionId = 'stack-session';
+    getState().sessions[sessionId] = { id: sessionId, stacks: [], droppedImages: [] };
+    getState().currentSessionId = sessionId;
+
+    const img1Url = await createTestImageDataUrl('#aa0000');
+    const img2Url = await createTestImageDataUrl('#00aa00');
+    const img3Url = await createTestImageDataUrl('#0000aa');
+    const img1 = await addDroppedImage(img1Url);
+    const img2 = await addDroppedImage(img2Url);
+    const img3 = await addDroppedImage(img3Url);
+
+    const result = await createStackFromItems([img1.itemId, 'missing-item', img2.itemId, img3.itemId], 10, 20);
+
+    expect(result).toBeNull();
+    expect(getState().canvasItems.map(item => item.itemId)).toEqual([img1.itemId, img2.itemId, img3.itemId]);
+    expect(getState().sessions[sessionId].stacks).toEqual([]);
+    expect(getState().sessions[sessionId].droppedImages.map(item => item.id)).toHaveLength(3);
   });
 });
