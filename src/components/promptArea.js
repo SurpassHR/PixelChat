@@ -2,57 +2,7 @@ import { getState, setState, subscribe, appendMessage, addDroppedImage, addMater
 import { $, $$, escapeHtml } from '../domHelpers.js';
 import { showToast } from '../toast.js';
 import { selectModel, fetchModels } from './modelSelector.js';
-import * as monaco from 'monaco-editor';
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
-
-// Configure Monaco workers for Vite
-self.MonacoEnvironment = {
-  getWorker(_, label) {
-    if (label === 'json') return new jsonWorker();
-    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker();
-    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker();
-    if (label === 'typescript' || label === 'javascript') return new tsWorker();
-    return new editorWorker();
-  }
-};
-
-// Define Darkroom Luminary theme for Monaco
-monaco.editor.defineTheme('darkroom', {
-  base: 'vs-dark',
-  inherit: true,
-  rules: [
-    { token: '', foreground: 'e0e0e0' },
-    { token: 'comment', foreground: '6b5b3a', fontStyle: 'italic' },
-    { token: 'keyword', foreground: 'e8b86d', fontStyle: 'bold' },
-    { token: 'string', foreground: 'c49a4a' },
-    { token: 'number', foreground: 'd4a84b' },
-    { token: 'type', foreground: 'c9953e' },
-  ],
-  colors: {
-    'editor.background': '#1a1815',
-    'editor.foreground': '#e0e0e0',
-    'editor.lineHighlightBackground': '#1a1815',
-    'editor.selectionBackground': '#3d2e0f',
-    'editorCursor.foreground': '#e8b86d',
-    'editorLineNumber.foreground': '#8b691480',
-    'editorLineNumber.activeForeground': '#e8b86d',
-    'editor.selectionHighlightBackground': '#3d2e0f40',
-    'editor.inactiveSelectionBackground': '#3d2e0f30',
-    'editorWidget.background': '#1a1815',
-    'editorWidget.border': '#e8b86d20',
-    'input.background': '#1a1815',
-    'input.border': '#e8b86d20',
-    'focusBorder': '#e8b86d40',
-    'scrollbar.shadow': '#00000000',
-    'scrollbarSlider.background': '#e8b86d10',
-    'scrollbarSlider.hoverBackground': '#e8b86d20',
-    'scrollbarSlider.activeBackground': '#e8b86d30',
-  }
-});
+// Monaco editor is lazy-loaded on first use (saves ~3.3MB from initial bundle)
 
 function renderAttachments() {
   const container = $('#attachments');
@@ -729,13 +679,65 @@ export function initPromptArea() {
     renderAttachments();
   });
   
-  // --- 内联 Monaco 编辑器初始化 ---
-  function initInlineMonacoEditor() {
+  // --- 内联 Monaco 编辑器初始化（懒加载，首屏不阻塞） ---
+  async function initInlineMonacoEditor() {
     const container = $('#promptMonacoEditor');
     if (!container) return;
 
+    // 动态导入 Monaco 及其 workers（从主 bundle 中分离 ~3.3MB）
+    const [monaco, { default: editorWorker }, { default: tsWorker }, { default: jsonWorker }, { default: cssWorker }, { default: htmlWorker }] = await Promise.all([
+      import('monaco-editor'),
+      import('monaco-editor/esm/vs/editor/editor.worker?worker'),
+      import('monaco-editor/esm/vs/language/typescript/ts.worker?worker'),
+      import('monaco-editor/esm/vs/language/json/json.worker?worker'),
+      import('monaco-editor/esm/vs/language/css/css.worker?worker'),
+      import('monaco-editor/esm/vs/language/html/html.worker?worker'),
+    ]);
+
+    self.MonacoEnvironment = {
+      getWorker(_, label) {
+        if (label === 'json') return new jsonWorker();
+        if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker();
+        if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker();
+        if (label === 'typescript' || label === 'javascript') return new tsWorker();
+        return new editorWorker();
+      }
+    };
+
+    monaco.editor.defineTheme('darkroom', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: '', foreground: 'e0e0e0' },
+        { token: 'comment', foreground: '6b5b3a', fontStyle: 'italic' },
+        { token: 'keyword', foreground: 'e8b86d', fontStyle: 'bold' },
+        { token: 'string', foreground: 'c49a4a' },
+        { token: 'number', foreground: 'd4a84b' },
+        { token: 'type', foreground: 'c9953e' },
+      ],
+      colors: {
+        'editor.background': '#1a1815',
+        'editor.foreground': '#e0e0e0',
+        'editor.lineHighlightBackground': '#1a1815',
+        'editor.selectionBackground': '#3d2e0f',
+        'editorCursor.foreground': '#e8b86d',
+        'editorLineNumber.foreground': '#8b691480',
+        'editorLineNumber.activeForeground': '#e8b86d',
+        'editor.selectionHighlightBackground': '#3d2e0f40',
+        'editor.inactiveSelectionBackground': '#3d2e0f30',
+        'editorWidget.background': '#1a1815',
+        'editorWidget.border': '#e8b86d20',
+        'input.background': '#1a1815',
+        'input.border': '#e8b86d20',
+        'focusBorder': '#e8b86d40',
+        'scrollbar.shadow': '#00000000',
+        'scrollbarSlider.background': '#e8b86d10',
+        'scrollbarSlider.hoverBackground': '#e8b86d20',
+        'scrollbarSlider.activeBackground': '#e8b86d30',
+      }
+    });
+
     const draft = getState().promptDraft || '';
-    console.log('[initPromptArea] 初始化时 promptDraft:', draft);
 
     _monacoEditor = monaco.editor.create(container, {
       value: draft,
@@ -773,7 +775,6 @@ export function initPromptArea() {
 
     updateInlineEditorHeight(false);
 
-    // 聚焦展开、失焦收起
     _monacoEditor.onDidFocusEditorWidget(() => {
       updateInlineEditorHeight(true);
     });
@@ -782,7 +783,6 @@ export function initPromptArea() {
       updateInlineEditorHeight(false);
     });
 
-    // 内容变化：仅展开状态下自动调整高度 + 草稿同步
     _monacoEditor.onDidChangeModelContent(() => {
       if (_monacoExpanded) {
         updateInlineEditorHeight(true);
@@ -794,7 +794,6 @@ export function initPromptArea() {
         saveCurrentSessionDraft();
       }
     });
-
   }
 
   function updateInlineEditorHeight(expanded) {
