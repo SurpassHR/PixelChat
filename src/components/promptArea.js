@@ -803,9 +803,7 @@ export function initPromptArea() {
     const container = $('#promptMonacoEditor');
     let height;
     if (expanded) {
-      const model = _monacoEditor.getModel();
-      const lineCount = model ? model.getLineCount() : 1;
-      const contentHeight = lineCount * 22 + 8;
+      const contentHeight = _monacoEditor.getContentHeight();
       const maxHeight = window.innerHeight * 0.4;
       height = Math.min(contentHeight, maxHeight);
       container.style.alignSelf = 'flex-end';

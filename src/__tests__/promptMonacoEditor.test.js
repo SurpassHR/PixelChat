@@ -91,8 +91,8 @@ describe('内联 Monaco 编辑器 — JS 展开/收起逻辑', () => {
     expect(rawJs).toMatch(/function\s+updateInlineEditorHeight\s*\(\s*expanded\s*\)/);
   });
 
-  it('expanded=true 时使用 contentHeight 计算高度', () => {
-    expect(rawJs).toMatch(/contentHeight\s*=\s*lineCount\s*\*\s*22\s*\+\s*8/);
+  it('expanded=true 时使用 getContentHeight() 计算高度（计入 word wrap 折行）', () => {
+    expect(rawJs).toMatch(/contentHeight\s*=\s*_monacoEditor\.getContentHeight\s*\(\s*\)/);
     expect(rawJs).toMatch(/Math\.min\s*\(\s*contentHeight\s*,\s*maxHeight\s*\)/);
   });
 
