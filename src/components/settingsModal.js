@@ -19,7 +19,6 @@ function openSettingsModal() {
   const { providers } = getState();
   const names = Object.keys(providers);
   _activeProvider = names.includes(_activeProvider) ? _activeProvider : (names[0] || '');
-  console.log('[DEBUG openSettingsModal] providers keys:', names, '_activeProvider:', _activeProvider, '_activePanel:', _activePanel);
   // 恢复到上次活跃的面板
   if (_activePanel === 'general') {
     updateSubmenuActive('general');
@@ -65,8 +64,6 @@ function showGeneralPanel() {
 function showProviderPanel() {
   const { providers } = getState();
   const names = Object.keys(providers);
-  console.log('[DEBUG showProviderPanel] providers keys:', names, 'names.length:', names.length);
-
   const panel = $('#settingsProviderPanel');
   const content = $('#settingsContent');
   const empty = $('#settingsEmpty');
@@ -79,12 +76,10 @@ function showProviderPanel() {
   content.style.display = 'flex';
 
   if (names.length === 0) {
-    console.log('[DEBUG showProviderPanel] 无供应商 → 显示空状态，但保留左侧面板和添加按钮');
     empty.style.display = 'flex';
     panel.style.display = 'flex';
     renderProviderList();
   } else {
-    console.log('[DEBUG showProviderPanel] 有供应商 → 显示左侧面板');
     empty.style.display = 'none';
     panel.style.display = 'flex';
     renderProviderList();
@@ -476,10 +471,8 @@ export function initSettingsModal() {
 
   // Re-render when external data changes
   subscribe('providers', () => {
-    console.log('[DEBUG providers订阅] overlay可见:', overlay.style.display !== 'none', '_activePanel:', _activePanel);
     if (overlay.style.display !== 'none' && _activePanel === 'providers') {
       const { providers } = getState();
-      console.log('[DEBUG providers订阅] 重新渲染, providers keys:', Object.keys(providers));
       renderProviderList();
       if (_activeProvider && providers[_activeProvider]) {
         showProviderConfig(_activeProvider);

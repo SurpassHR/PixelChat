@@ -388,21 +388,17 @@ async function loadSettings() {
   let result = {};
   try {
     result = await apiGet('/api/settings') || {};
-    console.log('[DEBUG loadSettings] 后端返回:', JSON.stringify(result).slice(0, 300));
   } catch (e) {
     console.log('[加载] 后端 settings 不可用:', e.message);
   }
   // 始终从 localStorage 合并以填补后端缺失的字段（如 providers）
   try {
     const localData = localStorage.getItem('image-gen-settings-v2');
-    console.log('[DEBUG loadSettings] localStorage 是否存在:', !!localData);
     if (localData) {
       const parsed = JSON.parse(localData);
-      console.log('[DEBUG loadSettings] localStorage 内容 keys:', Object.keys(parsed), 'providers keys:', Object.keys(parsed.providers || {}));
       result = { ...parsed, ...result };
     }
   } catch (e) { console.log('[降级] localStorage settings 解析失败:', e); }
-  console.log('[DEBUG loadSettings] 最终 result keys:', Object.keys(result), 'providers keys:', Object.keys(result.providers || {}));
   return result;
 }
 
@@ -1759,8 +1755,6 @@ export async function initStore() {
     loadActiveId()
   ]);
 
-  console.log('[DEBUG initStore] settings keys:', Object.keys(settings || {}), 'providers:', Object.keys((settings && settings.providers) || {}));
-
   if (sessions && Object.keys(sessions).length > 0) {
     state.sessions = sessions;
   }
@@ -1775,7 +1769,7 @@ export async function initStore() {
     if (!state.selectedModelKey && state.selectedProvider && state.selectedModelId) {
       state.selectedModelKey = buildModelKey(state.selectedProvider, state.selectedModelId);
     }
-    if (settings.providers !== undefined) { state.providers = settings.providers; console.log('[DEBUG initStore] 已设置 state.providers, keys:', Object.keys(state.providers)); }
+    if (settings.providers !== undefined) state.providers = settings.providers;
     if (settings.reusePrompt !== undefined) state.reusePrompt = settings.reusePrompt;
     if (settings.reuseRef !== undefined) state.reuseRef = settings.reuseRef;
     if (settings.batchSize !== undefined) state.batchSize = settings.batchSize;
