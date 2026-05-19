@@ -1686,8 +1686,8 @@ async function _reconcilePendingTasks() {
             model: backendTask.model || pt.model || '',
             provider: backendTask.provider || pt.provider || '',
             createdAt: backendTask.created_at ? backendTask.created_at * 1000 : null,
-            durationMs: (backendTask.created_at && backendTask.completed_at)
-              ? (backendTask.completed_at - backendTask.created_at) * 1000
+            durationMs: (backendTask.created_at && (backendTask.completed_at || backendTask.updated_at))
+              ? ((backendTask.completed_at || backendTask.updated_at) - backendTask.created_at) * 1000
               : null
           });
         } catch (e) {
@@ -1715,8 +1715,8 @@ async function _reconcilePendingTasks() {
               model: backendTask.model || pt.model || '',
               provider: backendTask.provider || pt.provider || '',
               createdAt: backendTask.created_at ? backendTask.created_at * 1000 : null,
-              durationMs: (backendTask.created_at && backendTask.completed_at)
-                ? (backendTask.completed_at - backendTask.created_at) * 1000
+              durationMs: (backendTask.created_at && (backendTask.completed_at || backendTask.updated_at))
+                ? ((backendTask.completed_at || backendTask.updated_at) - backendTask.created_at) * 1000
                 : null
             });
           } catch (e) {

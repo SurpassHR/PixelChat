@@ -124,8 +124,8 @@ async function syncToCanvas(tasks) {
           model: task.model || match.model || '',
           provider: task.provider || match.provider || '',
           createdAt: task.created_at ? task.created_at * 1000 : null,
-          durationMs: (task.created_at && task.completed_at)
-            ? (task.completed_at - task.created_at) * 1000
+          durationMs: (task.created_at && (task.completed_at || task.updated_at))
+            ? ((task.completed_at || task.updated_at) - task.created_at) * 1000
             : null
         });
         processedIds.add(task.id);
@@ -140,8 +140,8 @@ async function syncToCanvas(tasks) {
           model: task.model || match.model || '',
           provider: task.provider || match.provider || '',
           createdAt: task.created_at ? task.created_at * 1000 : null,
-          durationMs: (task.created_at && task.completed_at)
-            ? (task.completed_at - task.created_at) * 1000
+          durationMs: (task.created_at && (task.completed_at || task.updated_at))
+            ? ((task.completed_at || task.updated_at) - task.created_at) * 1000
             : null
         });
         processedIds.add(task.id);
@@ -160,8 +160,8 @@ async function syncToCanvas(tasks) {
         model: task.model || match.model || '',
         provider: task.provider || match.provider || '',
         createdAt: task.created_at ? task.created_at * 1000 : null,
-        durationMs: (task.created_at && task.completed_at)
-          ? (task.completed_at - task.created_at) * 1000
+        durationMs: (task.created_at && (task.completed_at || task.updated_at))
+          ? ((task.completed_at || task.updated_at) - task.created_at) * 1000
           : null
       });
       processedIds.add(task.id);
