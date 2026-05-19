@@ -640,6 +640,23 @@ export function initPromptArea() {
   promptArea.addEventListener('drop', async e => {
     e.preventDefault();
     promptArea.classList.remove('drag-over');
+
+    // 处理从操作系统拖入的文件（支持多张图片同时拖入）
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      for (const file of files) {
+        if (file.type.startsWith('image/')) {
+          const dataUrl = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(file);
+          });
+          await addRefImage(file.name, dataUrl);
+        }
+      }
+      return;
+    }
+
     const data = e.dataTransfer.getData('text/plain') ||
                  e.dataTransfer.getData('application/json');
     if (data) {
