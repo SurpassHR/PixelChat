@@ -358,6 +358,11 @@ def _init_tasks_table():
             conn.execute(f'ALTER TABLE tasks ADD COLUMN {col} {col_type}')
         except sqlite3.OperationalError:
             pass
+    # 新增：任务完成时间戳列
+    try:
+        conn.execute('ALTER TABLE tasks ADD COLUMN completed_at REAL')
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -370,6 +375,9 @@ def _load_tasks():
         # 兼容旧数据：无 retry_count 时默认 0
         if 'retry_count' not in task:
             task['retry_count'] = 0
+        # 兼容旧数据：completed_at 为空但任务已处终态时用 updated_at 回退
+        if not task.get('completed_at') and task['status'] in ('completed', 'failed', 'cancelled'):
+            task['completed_at'] = task.get('updated_at', now)
         try:
             task['refs'] = json.loads(task.get('refs', '[]'))
         except (json.JSONDecodeError, TypeError):
@@ -378,6 +386,7 @@ def _load_tasks():
         if task['status'] == 'running':
             task['status'] = 'pending'
             task['updated_at'] = now
+            task['completed_at'] = None
             conn.execute(
                 'UPDATE tasks SET status=?, updated_at=? WHERE id=?',
                 ('pending', now, task['id'])
@@ -387,12 +396,15 @@ def _load_tasks():
     conn.close()
 
 def _save_task(task):
+    # 任务进入终态时自动记录完成时间戳（仅首次设置，避免重试覆盖）
+    if task.get('status') in ('completed', 'failed', 'cancelled') and not task.get('completed_at'):
+        task['completed_at'] = time.time()
     conn = get_db()
     conn.execute('''
         INSERT OR REPLACE INTO tasks (id, status, prompt, model, provider, refs, image_url, error, thinking, retry_count,
                                      request_url, request_body, request_headers, response_status, response_headers, response_body,
-                                     created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     created_at, updated_at, completed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         task['id'], task['status'], task['prompt'], task['model'], task['provider'],
         json.dumps(task.get('refs', [])),
@@ -405,7 +417,8 @@ def _save_task(task):
         task.get('response_status', 0),
         task.get('response_headers', ''),
         task.get('response_body', ''),
-        task['created_at'], task['updated_at']
+        task['created_at'], task['updated_at'],
+        task.get('completed_at')
     ))
     conn.commit()
     conn.close()
