@@ -1,4 +1,4 @@
-import { initStore, getState, createSession, subscribe, setState } from './store.js';
+import { initStore, getState, createSession, subscribe, setState, forceSaveSessions } from './store.js';
 import { $ } from './domHelpers.js';
 import { initSidebar } from './components/sidebar.js';
 import { initPromptArea } from './components/promptArea.js';
@@ -14,6 +14,25 @@ import { initTaskLog } from './components/taskLog.js';
 import { loadAllSizes, initAllHandles } from './resize.js';
 
 (async () => {
+  // 页面关闭前确保数据保存：先同步写 localStorage（不依赖网络），再尝试后端
+  window.addEventListener('beforeunload', () => {
+    try {
+      const { sessions } = getState();
+      if (sessions && Object.keys(sessions).length > 0) {
+        localStorage.setItem('image-gen-sessions', JSON.stringify(sessions));
+      }
+    } catch { /* 忽略 */ }
+    // sendBeacon 在页面卸载时比 fetch 更可靠
+    try {
+      const { sessions } = getState();
+      const blob = new Blob([JSON.stringify(sessions)], { type: 'application/json' });
+      navigator.sendBeacon(
+        (import.meta.env.VITE_STORAGE_BASE || 'http://127.0.0.1:5001').replace(/\/+$/, '') + '/api/sessions',
+        blob
+      );
+    } catch { /* 忽略 */ }
+  });
+
   // Initialize store (loads from backend SQLite)
   await initStore();
 

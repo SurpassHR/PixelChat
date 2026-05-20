@@ -359,6 +359,10 @@ export function updateProviderConfig(name, config) {
 // 后端存储
 // --------------------------------------------------------------
 const STORAGE_BASE = import.meta.env.VITE_STORAGE_BASE || 'http://127.0.0.1:5001';
+const STORAGE_KEY_SESSIONS = 'image-gen-sessions';
+let _backendSyncFailures = 0;
+let _backendUnreachable = false;
+const MAX_SYNC_FAILURES_BEFORE_WARN = 3;
 
 function getStorageBase() {
   return STORAGE_BASE.replace(/\/+$/, '');
@@ -408,7 +412,30 @@ function debouncedBackendSync() {
   if (_pendingSave) return;
   _pendingSave = setTimeout(async () => {
     _pendingSave = null;
-    try { await apiPost('/api/sessions', sanitizeForSave(state.sessions)); } catch (e) { console.error('[同步] 保存 sessions 到后端失败:', e); }
+
+    // 保存 sessions
+    try {
+      await apiPost('/api/sessions', sanitizeForSave(state.sessions));
+      _backendUnreachable = false;
+      _backendSyncFailures = 0;
+      // 后端成功保存后，同步备份到 localStorage
+      try {
+        localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(state.sessions));
+      } catch { /* localStorage 写入失败忽略 */ }
+    } catch (e) {
+      console.error('[同步] 保存 sessions 到后端失败:', e);
+      _backendSyncFailures++;
+      _backendUnreachable = true;
+      // 降级写入 localStorage
+      try {
+        localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(state.sessions));
+      } catch { /* localStorage 写入失败忽略 */ }
+      // 连续失败 N 次后通知用户
+      if (_backendSyncFailures === MAX_SYNC_FAILURES_BEFORE_WARN) {
+        setState({ statusText: '保存到后端失败，已保存到本地缓存' });
+      }
+    }
+
     // 发送完整素材库对象（包含堆叠组）
     try {
       await apiPost('/api/materials', {
@@ -502,17 +529,52 @@ function uploadItemImage(item) {
 }
 
 async function loadSessions() {
+  // 先尝试从后端加载
   try {
     const remote = await apiGet('/api/sessions');
-    if (remote && Object.keys(remote).length > 0) {
+    if (remote && typeof remote === 'object' && !Array.isArray(remote) && Object.keys(remote).length > 0) {
       console.log('[加载] sessions 从后端加载:', Object.keys(remote).length, '个');
+      _backendUnreachable = false;
+      _backendSyncFailures = 0;
       // 确保每个 session 有 stacks 字段
       for (const id of Object.keys(remote)) {
         if (!remote[id].stacks) remote[id].stacks = [];
       }
+      // 同步写入 localStorage 作为备份
+      try {
+        localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(remote));
+      } catch { /* localStorage 写入失败忽略 */ }
       return remote;
     }
-  } catch (e) { console.log('[加载] 后端 sessions 不可用:', e.message); }
+    // 后端返回空对象或无效数据，也视为成功（可能是新用户）
+    if (remote && typeof remote === 'object' && !Array.isArray(remote)) {
+      _backendUnreachable = false;
+      _backendSyncFailures = 0;
+      return remote;
+    }
+  } catch (e) {
+    console.log('[加载] 后端 sessions 不可用:', e.message);
+    _backendUnreachable = true;
+  }
+
+  // 后端不可达时，从 localStorage 降级加载
+  try {
+    const local = localStorage.getItem(STORAGE_KEY_SESSIONS);
+    if (local) {
+      const parsed = JSON.parse(local);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
+        console.log('[降级] 从 localStorage 加载 sessions:', Object.keys(parsed).length, '个');
+        setState({ statusText: '后端不可用，使用本地缓存数据' });
+        for (const id of Object.keys(parsed)) {
+          if (!parsed[id].stacks) parsed[id].stacks = [];
+        }
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.log('[降级] localStorage sessions 解析失败:', e);
+  }
+
   return {};
 }
 
@@ -520,11 +582,23 @@ function saveSessions() {
   debouncedBackendSync();
 }
 
-// 立即强制保存会话（不经过防抖）
+// 立即强制保存会话（不经过防抖），同时写 localStorage 备份
 export async function forceSaveSessions() {
+  let backendOk = false;
   try {
     await apiPost('/api/sessions', sanitizeForSave(state.sessions));
-  } catch (e) { console.error('[forceSaveSessions] 保存失败:', e); }
+    _backendUnreachable = false;
+    _backendSyncFailures = 0;
+    backendOk = true;
+  } catch (e) {
+    console.error('[forceSaveSessions] 保存到后端失败:', e);
+    _backendUnreachable = true;
+  }
+  // 无论后端是否成功，同时写入 localStorage
+  try {
+    localStorage.setItem(STORAGE_KEY_SESSIONS, JSON.stringify(state.sessions));
+  } catch { /* localStorage 写入失败忽略 */ }
+  return backendOk;
 }
 
 async function loadActiveId() {
