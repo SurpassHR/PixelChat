@@ -1,4 +1,4 @@
-import { getState, setState, subscribe, addDroppedImage, cancelGeneration, createStackFromItems, addToStack, removeFromStack, mergeStacks, removeCanvasItemById, forceSaveSessions } from '../store.js';
+import { getState, setState, subscribe, addDroppedImage, cancelGeneration, createStackFromItems, addToStack, removeFromStack, mergeStacks, removeCanvasItemById } from '../store.js';
 import { $$ } from '../domHelpers.js';
 import { openImageDetail } from './modal.js';
 import { showToast } from '../toast.js';
@@ -1077,9 +1077,8 @@ export function initCanvas() {
   });
   subscribe('currentSessionId', restoreImageBlurState);
 
-  // 页面关闭时刷新防抖保存并停止定时器
+  // 页面关闭时停止定时器（会话保存由 main.js beforeunload 统一处理）
   window.addEventListener('beforeunload', () => {
-    forceSaveSessions();
     stopTimerUpdates();
   });
 

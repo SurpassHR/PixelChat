@@ -528,7 +528,45 @@ function uploadItemImage(item) {
   }
 }
 
+function loadSessionsFromLocal() {
+  try {
+    const local = localStorage.getItem(STORAGE_KEY_SESSIONS);
+    if (local) {
+      const parsed = JSON.parse(local);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
+        console.log('[降级] 从 localStorage 加载 sessions:', Object.keys(parsed).length, '个');
+        setState({ statusText: '后端不可用，使用本地缓存数据' });
+        for (const id of Object.keys(parsed)) {
+          if (!parsed[id].stacks) parsed[id].stacks = [];
+        }
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.log('[降级] localStorage sessions 解析失败:', e);
+  }
+  return {};
+}
+
+// 快速检测后端是否可达（2秒超时）
+async function checkBackendHealth() {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    await fetch(getStorageBase() + '/api/active', { signal: controller.signal });
+    clearTimeout(timeout);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function loadSessions() {
+  // 健康检查已知后端不可达，直接走 localStorage
+  if (_backendUnreachable) {
+    return loadSessionsFromLocal();
+  }
+
   // 先尝试从后端加载
   try {
     const remote = await apiGet('/api/sessions');
@@ -558,24 +596,7 @@ async function loadSessions() {
   }
 
   // 后端不可达时，从 localStorage 降级加载
-  try {
-    const local = localStorage.getItem(STORAGE_KEY_SESSIONS);
-    if (local) {
-      const parsed = JSON.parse(local);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.keys(parsed).length > 0) {
-        console.log('[降级] 从 localStorage 加载 sessions:', Object.keys(parsed).length, '个');
-        setState({ statusText: '后端不可用，使用本地缓存数据' });
-        for (const id of Object.keys(parsed)) {
-          if (!parsed[id].stacks) parsed[id].stacks = [];
-        }
-        return parsed;
-      }
-    }
-  } catch (e) {
-    console.log('[降级] localStorage sessions 解析失败:', e);
-  }
-
-  return {};
+  return loadSessionsFromLocal();
 }
 
 function saveSessions() {
@@ -602,6 +623,7 @@ export async function forceSaveSessions() {
 }
 
 async function loadActiveId() {
+  if (_backendUnreachable) return '';
   try {
     const val = await apiGet('/api/active');
     if (val) return val;
@@ -1822,6 +1844,13 @@ async function _reconcilePendingTasks() {
 // 初始化存储（从后端加载数据）
 // --------------------------------------------------------------
 export async function initStore() {
+  // 快速检测后端是否可达，不可达则跳过网络请求直接走 localStorage
+  const backendAvailable = await checkBackendHealth();
+  if (!backendAvailable) {
+    _backendUnreachable = true;
+    console.log('[初始化] 后端不可达，将直接从本地缓存加载');
+  }
+
   const [sessions, materialsData, settings, activeId] = await Promise.all([
     loadSessions(),
     loadMaterials(),
