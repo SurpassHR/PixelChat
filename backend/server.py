@@ -306,18 +306,32 @@ def build_api_url(base, path):
 # ============================================================
 
 # Concurrency & reliability configuration
-MAX_CONCURRENT = 2       # Max concurrent generation requests
 MAX_QUEUE_DEPTH = 20     # Max pending tasks before rejecting
 REQUEST_TIMEOUT = 3600   # Hard ceiling (1h), only prevents infinite hang
 CHUNK_READ_TIMEOUT = 180  # Socket read timeout per chunk — 允许更长的处理间隔（例如返回102时）
 MAX_RETRIES = 2          # Only retry on network disconnect, not flow2api content errors; 429 also retries with longer delay
 RETRY_BASE_DELAY = 5     # Base delay (s) for exponential backoff
+DEFAULT_CONCURRENCY = 2  # 默认每 provider 并发数
 
 _tasks = {}
 _tasks_lock = threading.Lock()
 _task_workers = {}
 _queue_running = True
-_concurrency_sem = threading.Semaphore(MAX_CONCURRENT)
+_provider_sems = {}       # provider_name → threading.Semaphore
+_provider_sems_lock = threading.Lock()
+
+def _get_provider_sem(provider_name):
+    """获取或创建 provider 专属的信号量，并发数来自 provider 配置的 concurrency 字段。"""
+    with _provider_sems_lock:
+        if provider_name not in _provider_sems:
+            settings = kv_get('settings', {})
+            providers = settings.get('providers', {})
+            provider = providers.get(provider_name, {})
+            concurrency = provider.get('concurrency', DEFAULT_CONCURRENCY)
+            if not isinstance(concurrency, int) or concurrency < 1:
+                concurrency = DEFAULT_CONCURRENCY
+            _provider_sems[provider_name] = threading.Semaphore(concurrency)
+        return _provider_sems[provider_name]
 
 def _init_tasks_table():
     conn = get_db()
@@ -569,9 +583,22 @@ def _prompt_with_aspect_ratio(prompt, aspect_ratio):
 
 
 def _execute_task(task_id):
-    """Execute a generation task with concurrency limiting, timeout, and retry."""
-    with _concurrency_sem:
-        # Re-check cancellation after acquiring the semaphore (may have waited)
+    """Execute a generation task with per-provider concurrency limiting."""
+    # 先读取任务获取 provider 名称
+    with _tasks_lock:
+        if task_id not in _tasks:
+            _task_workers.pop(task_id, None)
+            return
+        task = _tasks[task_id]
+        if task['status'] in ('cancelled', 'running', 'completed'):
+            _task_workers.pop(task_id, None)
+            return
+        provider_name = task.get('provider', '')
+
+    # 按 provider 控制并发
+    sem = _get_provider_sem(provider_name) if provider_name else threading.Semaphore(DEFAULT_CONCURRENCY)
+    with sem:
+        # 等待期间可能被取消，重新检查
         with _tasks_lock:
             if task_id not in _tasks:
                 _task_workers.pop(task_id, None)

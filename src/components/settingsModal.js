@@ -148,6 +148,7 @@ function showProviderConfig(name) {
   $('#settingsProviderIcon').textContent = name.charAt(0).toUpperCase();
   $('#settingsApiKey').value = p.api_key || '';
   $('#settingsBaseUrl').value = p.base_url || '';
+  $('#settingsConcurrency').value = p.concurrency ?? 2;
 
   renderModelTable(name);
 }
@@ -390,7 +391,8 @@ function scheduleSave() {
     if (!_activeProvider) return;
     const api_key = $('#settingsApiKey').value.trim();
     const base_url = $('#settingsBaseUrl').value.trim();
-    updateProviderConfig(_activeProvider, { api_key, base_url });
+    const concurrency = parseInt($('#settingsConcurrency').value, 10);
+    updateProviderConfig(_activeProvider, { api_key, base_url, concurrency: (isNaN(concurrency) || concurrency < 1) ? 2 : concurrency });
     setState({ statusText: `${_activeProvider}: 配置已保存` });
   }, 500);
 }
@@ -462,6 +464,7 @@ export function initSettingsModal() {
   // Auto-save on input
   $('#settingsApiKey').addEventListener('input', scheduleSave);
   $('#settingsBaseUrl').addEventListener('input', scheduleSave);
+  $('#settingsConcurrency').addEventListener('input', scheduleSave);
   $('#settingsRetryCount').addEventListener('input', () => {
     const val = parseInt($('#settingsRetryCount').value, 10);
     if (!isNaN(val) && val >= 0 && val <= 10) {

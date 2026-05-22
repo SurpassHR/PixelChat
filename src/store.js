@@ -293,7 +293,7 @@ function rebuildModels() {
 
 export function addProvider(name, base_url, api_key) {
   if (state.providers[name]) return false;
-  state.providers[name] = { base_url, api_key, models: [] };
+  state.providers[name] = { base_url, api_key, models: [], concurrency: 2 };
   rebuildModels();
   saveSettings();
   if (listeners['providers']) listeners['providers'].forEach(fn => fn());
